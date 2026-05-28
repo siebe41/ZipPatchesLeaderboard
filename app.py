@@ -35,54 +35,45 @@ def clean(text):
 def parse_score(msg):
     msg = clean(msg)
 
-    # Maximum reasonable score limits to prevent overflow and cheating
-    MAX_SCORE = 1000000  # 1 million should be more than enough for any legitimate score
+    # Score limits to prevent cheating
+    MIN_TOTAL_SCORE = 9  # Minimum reasonable combined score (greater than 8)
+    MAX_SCORE = 1000000
 
-    # Check for the zip//patch pattern
-    m = re.search(r'(\d+)\s*//\s*(\d+)', msg)
+    # Check for the "zip//patch" format
+    m = re.search(r'^(\d+)\s*//\s*(\d+)$', msg)
     if m:
         try:
             zip_score = int(m.group(1))
             patch_score = int(m.group(2))
-
-            # Validate scores are reasonable and non-negative
-            if zip_score < 0 or patch_score < 0:
-                return None
-            if zip_score > MAX_SCORE or patch_score > MAX_SCORE:
-                return None
-
-            # Ensure the matched strings don't contain decimals
-            # (regex \d+ won't match decimals, but verify no decimal point nearby)
-            zip_str = m.group(1)
-            patch_str = m.group(2)
-
-            # Check if there's a decimal point immediately before or after the numbers
-            start_pos = m.start(1)
-            end_pos = m.end(2)
-            if start_pos > 0 and msg[start_pos - 1] == '.':
-                return None
-            if end_pos < len(msg) and msg[end_pos] == '.':
-                return None
-
-            return zip_score, patch_score
         except (ValueError, OverflowError):
-            return None
+            return None, "Invalid score format. Nice attempt though!"
 
-    # Check for single number pattern
-    m = re.search(r'^\d+$', msg)
+        # Validate scores are within reasonable range
+        total = zip_score + patch_score
+        if total < MIN_TOTAL_SCORE:
+            return None, f"Nice try! {zip_score}//{patch_score} = {total}? Are we sure they're not cheating?"
+        if zip_score > MAX_SCORE or patch_score > MAX_SCORE:
+            return None, "Those numbers are suspiciously large... 🤔"
+
+        return (zip_score, patch_score), None
+
+    # Check for single number format
+    m = re.search(r'^(\d+)$', msg)
     if m:
         try:
-            score = int(m.group(0))
-
-            # Validate score is reasonable and non-negative
-            if score < 0 or score > MAX_SCORE:
-                return None
-
-            return score, 0
+            zip_score = int(m.group(1))
         except (ValueError, OverflowError):
-            return None
+            return None, "Invalid score format. Nice attempt though!"
 
-    return None
+        # Validate score is within reasonable range
+        if zip_score < MIN_TOTAL_SCORE:
+            return None, f"Score of {zip_score}? That's a bit too good to be true... 🧐"
+        if zip_score > MAX_SCORE:
+            return None, "Those numbers are suspiciously large... 🤔"
+
+        return (zip_score, 0), None
+
+    return None, "Invalid score format. Nice attempt though!"
 
 
 # --- Core logic ---
@@ -92,6 +83,7 @@ def process(payload):
 
     day_scores = {}
     participants = set(state.keys())
+    rejections = []  # Track rejected scores for trash talk
 
     for line in payload.messages:
         if ":" not in line:
@@ -100,8 +92,10 @@ def process(payload):
         name, msg = line.split(":", 1)
         name = name.strip()
 
-        parsed = parse_score(msg)
+        parsed, error_msg = parse_score(msg)
         if not parsed:
+            if error_msg:
+                rejections.append(f"{name}: {error_msg}")
             continue
 
         z, p = parsed
@@ -109,7 +103,7 @@ def process(payload):
         participants.add(name)
 
     if not day_scores:
-        return
+        return rejections
 
     worst_zip = max(v["zip"] for v in day_scores.values())
     worst_patch = max(v["patch"] for v in day_scores.values())
@@ -145,11 +139,21 @@ def process(payload):
     save_json(STATE_FILE, state)
     save_json(HISTORY_FILE, history)
 
+    return rejections
+
 
 # --- Routes ---
 @app.post("/ingest")
 def ingest(payload: Payload):
-    process(payload)
+    rejections = process(payload)
+
+    if rejections:
+        return {
+            "status": "ok",
+            "trash_talk": rejections,
+            "message": "Some scores were rejected. Up your game! 💪"
+        }
+
     return {"status": "ok"}
 
 
@@ -160,12 +164,50 @@ def leaderboard():
     rows = []
     for name, d in state.items():
         total = d["zip_total"] + d["patch_total"]
+        avg_total = total / d["days"]
+        avg_zip = d["zip_total"] / d["days"]
+        avg_patch = d["patch_total"] / d["days"]
+
+        # Generate trash talk based on performance
+        trash_talk = []
+
+        # Suspiciously good scores (average < 15)
+        if avg_total < 15:
+            trash_talk.append(f"🤨 Average of {avg_total:.1f}? Are we sure {name} isn't cheating?")
+
+        # Missed days
+        if d["penalty_days"] > 0:
+            trash_talk.append(f"💤 {d['penalty_days']} missed day{'s' if d['penalty_days'] > 1 else ''}. Someone's slacking!")
+
+        # Really good at one thing
+        if avg_zip < 10 and avg_patch > 20:
+            trash_talk.append("🎯 Zip wizard but patch struggles are real")
+        elif avg_patch < 10 and avg_zip > 20:
+            trash_talk.append("🎯 Patch master but zip game needs work")
+
         rows.append({
             "player": name,
             "total": total,
-            "avg_zip": d["zip_total"] / d["days"],
-            "avg_patch": d["patch_total"] / d["days"],
-            "missed": d["penalty_days"]
+            "avg_zip": avg_zip,
+            "avg_patch": avg_patch,
+            "missed": d["penalty_days"],
+            "trash_talk": trash_talk if trash_talk else None
         })
 
-    return sorted(rows, key=lambda x: x["total"])
+    sorted_rows = sorted(rows, key=lambda x: x["total"])
+
+    # Add extra trash talk for last place
+    if len(sorted_rows) > 1:
+        last_place = sorted_rows[-1]
+        if last_place["trash_talk"] is None:
+            last_place["trash_talk"] = []
+        last_place["trash_talk"].append("🏆 Last place! At least you're consistently... last.")
+
+    # Add praise for first place
+    if sorted_rows:
+        first_place = sorted_rows[0]
+        if first_place["trash_talk"] is None:
+            first_place["trash_talk"] = []
+        first_place["trash_talk"].insert(0, "👑 First place! Show-off.")
+
+    return sorted_rows
