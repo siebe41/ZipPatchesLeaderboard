@@ -42,8 +42,11 @@ def parse_score(msg):
     # Check for the "zip//patch" format
     m = re.search(r'^(\d+)\s*//\s*(\d+)$', msg)
     if m:
-        zip_score = int(m.group(1))
-        patch_score = int(m.group(2))
+        try:
+            zip_score = int(m.group(1))
+            patch_score = int(m.group(2))
+        except (ValueError, OverflowError):
+            return None, "Invalid score format. Nice attempt though!"
 
         # Validate scores are within reasonable range
         total = zip_score + patch_score
@@ -57,7 +60,10 @@ def parse_score(msg):
     # Check for single number format
     m = re.search(r'^(\d+)$', msg)
     if m:
-        zip_score = int(m.group(1))
+        try:
+            zip_score = int(m.group(1))
+        except (ValueError, OverflowError):
+            return None, "Invalid score format. Nice attempt though!"
 
         # Validate score is within reasonable range
         if zip_score < MIN_TOTAL_SCORE:
