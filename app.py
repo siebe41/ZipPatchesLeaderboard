@@ -36,7 +36,7 @@ def parse_score(msg):
     msg = clean(msg)
 
     # Score limits to prevent cheating
-    MIN_TOTAL_SCORE = 10  # Minimum reasonable combined score
+    MIN_TOTAL_SCORE = 9  # Minimum reasonable combined score (greater than 8)
     MAX_SCORE = 1000000
 
     # Check for the "zip//patch" format
@@ -48,11 +48,11 @@ def parse_score(msg):
         # Validate scores are within reasonable range
         total = zip_score + patch_score
         if total < MIN_TOTAL_SCORE:
-            return None
+            return None, f"Nice try! {zip_score}//{patch_score} = {total}? Are we sure they're not cheating?"
         if zip_score > MAX_SCORE or patch_score > MAX_SCORE:
-            return None
+            return None, "Those numbers are suspiciously large... 🤔"
 
-        return zip_score, patch_score
+        return (zip_score, patch_score), None
 
     # Check for single number format
     m = re.search(r'^(\d+)$', msg)
@@ -60,12 +60,14 @@ def parse_score(msg):
         zip_score = int(m.group(1))
 
         # Validate score is within reasonable range
-        if zip_score < MIN_TOTAL_SCORE or zip_score > MAX_SCORE:
-            return None
+        if zip_score < MIN_TOTAL_SCORE:
+            return None, f"Score of {zip_score}? That's a bit too good to be true... 🧐"
+        if zip_score > MAX_SCORE:
+            return None, "Those numbers are suspiciously large... 🤔"
 
-        return zip_score, 0
+        return (zip_score, 0), None
 
-    return None
+    return None, "Invalid score format. Nice attempt though!"
 
 
 # --- Core logic ---
@@ -75,6 +77,7 @@ def process(payload):
 
     day_scores = {}
     participants = set(state.keys())
+    rejections = []  # Track rejected scores for trash talk
 
     for line in payload.messages:
         if ":" not in line:
@@ -83,8 +86,10 @@ def process(payload):
         name, msg = line.split(":", 1)
         name = name.strip()
 
-        parsed = parse_score(msg)
+        parsed, error_msg = parse_score(msg)
         if not parsed:
+            if error_msg:
+                rejections.append(f"{name}: {error_msg}")
             continue
 
         z, p = parsed
@@ -92,7 +97,7 @@ def process(payload):
         participants.add(name)
 
     if not day_scores:
-        return
+        return rejections
 
     worst_zip = max(v["zip"] for v in day_scores.values())
     worst_patch = max(v["patch"] for v in day_scores.values())
@@ -128,11 +133,21 @@ def process(payload):
     save_json(STATE_FILE, state)
     save_json(HISTORY_FILE, history)
 
+    return rejections
+
 
 # --- Routes ---
 @app.post("/ingest")
 def ingest(payload: Payload):
-    process(payload)
+    rejections = process(payload)
+
+    if rejections:
+        return {
+            "status": "ok",
+            "trash_talk": rejections,
+            "message": "Some scores were rejected. Up your game! 💪"
+        }
+
     return {"status": "ok"}
 
 
