@@ -158,12 +158,50 @@ def leaderboard():
     rows = []
     for name, d in state.items():
         total = d["zip_total"] + d["patch_total"]
+        avg_total = total / d["days"]
+        avg_zip = d["zip_total"] / d["days"]
+        avg_patch = d["patch_total"] / d["days"]
+
+        # Generate trash talk based on performance
+        trash_talk = []
+
+        # Suspiciously good scores (average < 15)
+        if avg_total < 15:
+            trash_talk.append(f"🤨 Average of {avg_total:.1f}? Are we sure {name} isn't cheating?")
+
+        # Missed days
+        if d["penalty_days"] > 0:
+            trash_talk.append(f"💤 {d['penalty_days']} missed day{'s' if d['penalty_days'] > 1 else ''}. Someone's slacking!")
+
+        # Really good at one thing
+        if avg_zip < 10 and avg_patch > 20:
+            trash_talk.append("🎯 Zip wizard but patch struggles are real")
+        elif avg_patch < 10 and avg_zip > 20:
+            trash_talk.append("🎯 Patch master but zip game needs work")
+
         rows.append({
             "player": name,
             "total": total,
-            "avg_zip": d["zip_total"] / d["days"],
-            "avg_patch": d["patch_total"] / d["days"],
-            "missed": d["penalty_days"]
+            "avg_zip": avg_zip,
+            "avg_patch": avg_patch,
+            "missed": d["penalty_days"],
+            "trash_talk": trash_talk if trash_talk else None
         })
 
-    return sorted(rows, key=lambda x: x["total"])
+    sorted_rows = sorted(rows, key=lambda x: x["total"])
+
+    # Add extra trash talk for last place
+    if len(sorted_rows) > 1:
+        last_place = sorted_rows[-1]
+        if last_place["trash_talk"] is None:
+            last_place["trash_talk"] = []
+        last_place["trash_talk"].append("🏆 Last place! At least you're consistently... last.")
+
+    # Add praise for first place
+    if sorted_rows:
+        first_place = sorted_rows[0]
+        if first_place["trash_talk"] is None:
+            first_place["trash_talk"] = []
+        first_place["trash_talk"].insert(0, "👑 First place! Show-off.")
+
+    return sorted_rows
