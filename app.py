@@ -35,7 +35,8 @@ def clean(text):
 def parse_score(msg):
     msg = clean(msg)
 
-    # Maximum reasonable score to prevent cheating with huge numbers
+    # Score limits to prevent cheating
+    MIN_SCORE = 10  # Minimum reasonable score for Zip/Patches
     MAX_SCORE = 1000000
 
     # Check for the "zip//patch" format
@@ -45,7 +46,7 @@ def parse_score(msg):
         patch_score = int(m.group(2))
 
         # Validate scores are within reasonable range
-        if zip_score < 0 or patch_score < 0:
+        if zip_score < MIN_SCORE or patch_score < MIN_SCORE:
             return None
         if zip_score > MAX_SCORE or patch_score > MAX_SCORE:
             return None
@@ -58,7 +59,7 @@ def parse_score(msg):
         zip_score = int(m.group(1))
 
         # Validate score is within reasonable range
-        if zip_score < 0 or zip_score > MAX_SCORE:
+        if zip_score < MIN_SCORE or zip_score > MAX_SCORE:
             return None
 
         return zip_score, 0
