@@ -35,13 +35,52 @@ def clean(text):
 def parse_score(msg):
     msg = clean(msg)
 
+    # Maximum reasonable score limits to prevent overflow and cheating
+    MAX_SCORE = 1000000  # 1 million should be more than enough for any legitimate score
+
+    # Check for the zip//patch pattern
     m = re.search(r'(\d+)\s*//\s*(\d+)', msg)
     if m:
-        return int(m.group(1)), int(m.group(2))
+        try:
+            zip_score = int(m.group(1))
+            patch_score = int(m.group(2))
 
+            # Validate scores are reasonable and non-negative
+            if zip_score < 0 or patch_score < 0:
+                return None
+            if zip_score > MAX_SCORE or patch_score > MAX_SCORE:
+                return None
+
+            # Ensure the matched strings don't contain decimals
+            # (regex \d+ won't match decimals, but verify no decimal point nearby)
+            zip_str = m.group(1)
+            patch_str = m.group(2)
+
+            # Check if there's a decimal point immediately before or after the numbers
+            start_pos = m.start(1)
+            end_pos = m.end(2)
+            if start_pos > 0 and msg[start_pos - 1] == '.':
+                return None
+            if end_pos < len(msg) and msg[end_pos] == '.':
+                return None
+
+            return zip_score, patch_score
+        except (ValueError, OverflowError):
+            return None
+
+    # Check for single number pattern
     m = re.search(r'^\d+$', msg)
     if m:
-        return int(m.group(1)), 0
+        try:
+            score = int(m.group(0))
+
+            # Validate score is reasonable and non-negative
+            if score < 0 or score > MAX_SCORE:
+                return None
+
+            return score, 0
+        except (ValueError, OverflowError):
+            return None
 
     return None
 
