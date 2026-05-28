@@ -35,13 +35,33 @@ def clean(text):
 def parse_score(msg):
     msg = clean(msg)
 
-    m = re.search(r'(\d+)\s*//\s*(\d+)', msg)
-    if m:
-        return int(m.group(1)), int(m.group(2))
+    # Maximum reasonable score to prevent cheating with huge numbers
+    MAX_SCORE = 1000000
 
-    m = re.search(r'^\d+$', msg)
+    # Check for the "zip//patch" format
+    m = re.search(r'^(\d+)\s*//\s*(\d+)$', msg)
     if m:
-        return int(m.group(1)), 0
+        zip_score = int(m.group(1))
+        patch_score = int(m.group(2))
+
+        # Validate scores are within reasonable range
+        if zip_score < 0 or patch_score < 0:
+            return None
+        if zip_score > MAX_SCORE or patch_score > MAX_SCORE:
+            return None
+
+        return zip_score, patch_score
+
+    # Check for single number format
+    m = re.search(r'^(\d+)$', msg)
+    if m:
+        zip_score = int(m.group(1))
+
+        # Validate score is within reasonable range
+        if zip_score < 0 or zip_score > MAX_SCORE:
+            return None
+
+        return zip_score, 0
 
     return None
 
