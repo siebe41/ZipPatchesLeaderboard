@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  leaderboard-api:
+    build: .
+    container_name: leaderboard-app
+    ports:
+      - "8000:8000"
+    volumes:
+      # Maps the "data" folder we created to "/home" inside the container
+      - ./data:/home
+    restart: unless-stopped
