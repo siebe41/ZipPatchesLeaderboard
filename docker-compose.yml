@@ -7,6 +7,15 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Maps the "data" folder we created to "/home" inside the container
+      # Maps the "data" folder we created to "/home" inside the container.
+      # The zipscores buffer DB (ZS_BUFFER_DB) also lives here so it persists.
       - ./data:/home
+    # --- Zipscores collector / finalizer config (defaults shown) ---
+    # environment:
+    #   ZS_TIMEZONE: "America/Chicago"            # local TZ for "yesterday" + scheduler
+    #   ZS_BUFFER_DB: "/home/zipscores_buffer.db" # under ./data:/home so it persists
+    #   ZS_COLLECTOR_TOKEN: ""                    # if set, /collect requires X-Token header
+    #   ZS_RETENTION_DAYS: "30"                   # prune buffered messages older than this
+    #   ZS_FINALIZE_HOUR: "2"                     # daily finalize run hour (local time)
+    #   ZS_FINALIZE_MINUTE: "10"                  # daily finalize run minute (local time)
     restart: unless-stopped
