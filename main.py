@@ -238,7 +238,7 @@ ZS_TIMEZONE = os.environ.get("ZS_TIMEZONE", "America/Chicago")
 ZS_BUFFER_DB = os.environ.get("ZS_BUFFER_DB", "/home/zipscores_buffer.db")
 ZS_COLLECTOR_TOKEN = os.environ.get("ZS_COLLECTOR_TOKEN", "")
 ZS_RETENTION_DAYS = int(os.environ.get("ZS_RETENTION_DAYS", "30"))
-ZS_FINALIZE_HOUR = int(os.environ.get("ZS_FINALIZE_HOUR", "1"))
+ZS_FINALIZE_HOUR = int(os.environ.get("ZS_FINALIZE_HOUR", "2"))
 ZS_FINALIZE_MINUTE = int(os.environ.get("ZS_FINALIZE_MINUTE", "10"))
 
 

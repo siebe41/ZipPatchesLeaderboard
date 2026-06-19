@@ -58,7 +58,7 @@ starts with a digit). Messages whose `messageType` is set and not `"message"`
 | `ZS_BUFFER_DB`       | `/home/zipscores_buffer.db`  | SQLite buffer path (under `./data:/home`, persists) |
 | `ZS_COLLECTOR_TOKEN` | `` (empty)                   | If set, `/collect` requires `X-Token` to match     |
 | `ZS_RETENTION_DAYS`  | `30`                         | Prune buffered messages older than this many days  |
-| `ZS_FINALIZE_HOUR`   | `1`                          | Daily finalize run hour (local time)               |
+| `ZS_FINALIZE_HOUR`   | `2`                          | Daily finalize run hour (local time)               |
 | `ZS_FINALIZE_MINUTE` | `10`                         | Daily finalize run minute (local time)             |
 
 `STATE_FILE` (`/home/leaderboard.json`) and `HISTORY_FILE` (`/home/history.json`)
