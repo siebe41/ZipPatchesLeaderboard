@@ -1,5 +1,5 @@
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
@@ -7,7 +7,14 @@ import os
 import re
 import random
 import math
-from datetime import datetime, timedelta
+import sqlite3
+import threading
+from datetime import datetime, timedelta, timezone
+
+try:
+    from zoneinfo import ZoneInfo  # Python 3.9+ (needs tzdata on slim images)
+except ImportError:  # pragma: no cover
+    ZoneInfo = None
 
 app = FastAPI()
 
@@ -214,6 +221,196 @@ def adjust(player: str, add_zip: int = 0, add_patch: int = 0, add_days: int = 0,
     state[player]["penalty_days"] += add_penalties
     save_json(STATE_FILE, state)
     return {"status": "adjusted", "player": player}
+
+
+# =========================================================================== #
+# Zipscores collector / dedupe / next-day finalizer
+# ---------------------------------------------------------------------------
+# A Power Automate flow can only read ~50 Teams messages per call (no reliable
+# pagination, no Graph access). So instead of pull+score-at-once, PA POSTs raw
+# Teams message pages to /collect frequently. We buffer + dedupe them in SQLite,
+# and a daily in-process job scores YESTERDAY's messages through the existing
+# process()/parse_score() leaderboard logic (which also gives us the desired
+# "hold scores back until the next day" behavior).
+# =========================================================================== #
+
+ZS_TIMEZONE = os.environ.get("ZS_TIMEZONE", "America/Chicago")
+ZS_BUFFER_DB = os.environ.get("ZS_BUFFER_DB", "/home/zipscores_buffer.db")
+ZS_COLLECTOR_TOKEN = os.environ.get("ZS_COLLECTOR_TOKEN", "")
+ZS_RETENTION_DAYS = int(os.environ.get("ZS_RETENTION_DAYS", "30"))
+ZS_FINALIZE_HOUR = int(os.environ.get("ZS_FINALIZE_HOUR", "1"))
+ZS_FINALIZE_MINUTE = int(os.environ.get("ZS_FINALIZE_MINUTE", "10"))
+
+
+def _zs_tz():
+    if ZoneInfo is not None:
+        try:
+            return ZoneInfo(ZS_TIMEZONE)
+        except Exception:
+            pass
+    return timezone.utc
+
+
+_zs_db_lock = threading.Lock()
+_zs_conn = sqlite3.connect(ZS_BUFFER_DB, check_same_thread=False)
+_zs_conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS buffer (
+        id           TEXT PRIMARY KEY,
+        created_utc  TEXT,
+        local_date   TEXT,
+        display_name TEXT,
+        content_raw  TEXT,
+        message_type TEXT,
+        inserted_at  TEXT
+    )
+    """
+)
+_zs_conn.execute("CREATE INDEX IF NOT EXISTS idx_buffer_local_date ON buffer(local_date)")
+_zs_conn.commit()
+
+
+def _zs_extract_messages(payload):
+    """Be liberal: accept a bare list, {"value":[...]}, or {"body":{"value":[...]}}."""
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        if isinstance(payload.get("value"), list):
+            return payload["value"]
+        body = payload.get("body")
+        if isinstance(body, dict) and isinstance(body.get("value"), list):
+            return body["value"]
+        if isinstance(body, list):
+            return body
+        if "id" in payload and "createdDateTime" in payload:
+            return [payload]
+    return []
+
+
+def _zs_upsert(messages):
+    """Insert new messages (dedupe on Teams id). Returns # newly inserted."""
+    tz = _zs_tz()
+    now = datetime.now(timezone.utc).isoformat()
+    new_count = 0
+    with _zs_db_lock:
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            msg_id = msg.get("id")
+            created = msg.get("createdDateTime")
+            if not msg_id or not created:
+                continue
+            try:
+                created_dt = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            local_date = created_dt.astimezone(tz).strftime("%Y-%m-%d")
+            name = ((msg.get("from") or {}).get("user") or {}).get("displayName")
+            content = (msg.get("body") or {}).get("content", "")
+            mtype = msg.get("messageType", "message")
+            cur = _zs_conn.execute(
+                """
+                INSERT OR IGNORE INTO buffer
+                    (id, created_utc, local_date, display_name, content_raw,
+                     message_type, inserted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (msg_id, created_dt.astimezone(timezone.utc).isoformat(),
+                 local_date, name, content, mtype, now),
+            )
+            new_count += cur.rowcount
+        _zs_conn.commit()
+    return new_count
+
+
+def _zs_prune():
+    tz = _zs_tz()
+    cutoff = (datetime.now(tz).date() - timedelta(days=ZS_RETENTION_DAYS)).strftime("%Y-%m-%d")
+    with _zs_db_lock:
+        cur = _zs_conn.execute("DELETE FROM buffer WHERE local_date < ?", (cutoff,))
+        _zs_conn.commit()
+    return cur.rowcount
+
+
+def _zs_looks_score_ish(text):
+    """Keep a line only if it looks like a score: contains '//' OR starts with a digit."""
+    if "//" in text:
+        return True
+    if re.match(r"^\d", text.strip()):
+        return True
+    return False
+
+
+def zs_finalize(target_date=None):
+    """Score the buffered messages for target_date (default = yesterday local) through
+    the existing process()/parse_score() logic. Idempotent: re-running a date that was
+    already processed returns already_processed."""
+    tz = _zs_tz()
+    if not target_date:
+        target_date = (datetime.now(tz).date() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    with _zs_db_lock:
+        rows = _zs_conn.execute(
+            """
+            SELECT display_name, content_raw, message_type
+            FROM buffer
+            WHERE local_date = ?
+            ORDER BY created_utc ASC
+            """,
+            (target_date,),
+        ).fetchall()
+
+    lines = []
+    for display_name, content_raw, mtype in rows:
+        if mtype and mtype != "message":
+            continue
+        cleaned = clean(content_raw or "")
+        if not cleaned or not _zs_looks_score_ish(cleaned):
+            continue
+        lines.append(f"{display_name or 'Unknown'}: {cleaned}")
+
+    result = process(Payload(date=target_date, messages=lines))
+    _zs_prune()
+    return {"date": target_date, "count": len(lines), "result": result}
+
+
+@app.post("/collect")
+async def collect(request: Request):
+    if ZS_COLLECTOR_TOKEN and request.headers.get("X-Token") != ZS_COLLECTOR_TOKEN:
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        return JSONResponse(status_code=400, content={"error": f"bad json: {exc}"})
+    messages = _zs_extract_messages(payload)
+    new_count = _zs_upsert(messages)
+    return {"received": len(messages), "new": new_count}
+
+
+@app.post("/finalize")
+def finalize(date: str = None):
+    return zs_finalize(target_date=date)
+
+
+@app.on_event("startup")
+def _zs_start_scheduler():
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+    except Exception:
+        print("[zipscores] APScheduler not available; daily finalizer disabled.")
+        return
+    scheduler = BackgroundScheduler(timezone=ZS_TIMEZONE)
+    scheduler.add_job(
+        lambda: zs_finalize(),
+        "cron",
+        hour=ZS_FINALIZE_HOUR,
+        minute=ZS_FINALIZE_MINUTE,
+        id="zs_daily_finalize",
+        replace_existing=True,
+    )
+    scheduler.start()
+    print(f"[zipscores] Daily finalizer scheduled at "
+          f"{ZS_FINALIZE_HOUR:02d}:{ZS_FINALIZE_MINUTE:02d} {ZS_TIMEZONE}")
 
 
 def compute_filtered_stats(history, filtered_days):
