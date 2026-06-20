@@ -10,6 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy your actual Python code
 COPY main.py .
 
+# Copy brand assets (favicon + logo)
+COPY zippatchlings.ico zippatchlings.png ./
+
 # Expose the port FastAPI uses
 EXPOSE 8000
 

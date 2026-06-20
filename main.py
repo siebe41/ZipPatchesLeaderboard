@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
@@ -29,6 +29,26 @@ app.add_middleware(
 
 STATE_FILE = "/home/leaderboard.json"
 HISTORY_FILE = "/home/history.json"
+
+# Brand assets (favicon + logo) live alongside main.py in the image.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FAVICON_PATH = os.path.join(BASE_DIR, "zippatchlings.ico")
+LOGO_PATH = os.path.join(BASE_DIR, "zippatchlings.png")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    if os.path.exists(FAVICON_PATH):
+        return FileResponse(FAVICON_PATH, media_type="image/x-icon")
+    return JSONResponse(status_code=404, content={"error": "not found"})
+
+
+@app.get("/logo.png", include_in_schema=False)
+def logo():
+    if os.path.exists(LOGO_PATH):
+        return FileResponse(LOGO_PATH, media_type="image/png")
+    return JSONResponse(status_code=404, content={"error": "not found"})
+
 
 
 class Payload(BaseModel):
@@ -816,6 +836,8 @@ def dashboard(mode: str = "week"):
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#eee;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;min-height:100vh;padding:20px}
 .container{max-width:1200px;margin:0 auto}
+.brand{text-align:center;margin-bottom:10px}
+.logo{max-width:200px;width:40%;height:auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,.4))}
 h1{text-align:center;font-size:2.5em;margin-bottom:5px;background:linear-gradient(90deg,#4ecca3,#36a2eb);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .subtitle{text-align:center;color:#888;margin-bottom:10px;font-style:italic}
 .mode-bar{display:flex;justify-content:center;gap:10px;margin-bottom:30px;flex-wrap:wrap}
@@ -908,9 +930,10 @@ new Chart(document.getElementById('trendChart'),{type:'line',data:{labels:__TREN
     js = js.replace("__CHART_LABELS__", chart_labels).replace("__CHART_DATA__", chart_data_json).replace("__CHART_COLORS__", chart_colors_json)
     js = js.replace("__TREND_LABELS__", trend_labels).replace("__TREND_DATASETS__", trend_json)
 
-    html = '<!DOCTYPE html><html><head><title>Zip Patchlings</title><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="300"><script src="https://cdn.jsdelivr.net/npm/chart.js"></script>'
+    html = '<!DOCTYPE html><html><head><title>Zip Patchlings</title><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="300"><link rel="icon" type="image/x-icon" href="/favicon.ico"><script src="https://cdn.jsdelivr.net/npm/chart.js"></script>'
     html += css
     html += '</head><body><div class="container">'
+    html += '<div class="brand"><img src="/logo.png" alt="Zip Patchlings" class="logo"></div>'
     html += '<h1>Zip Patchlings</h1>'
     html += '<p class="subtitle">Consistency beats talent. Miss a day? Pay the price.</p>'
     html += mode_html
@@ -951,8 +974,11 @@ def player_history(name: str, mode: str = "week"):
     def _shell(body):
         return ('<!DOCTYPE html><html><head><title>' + name + ' - Zip Patchlings</title>'
                 '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<link rel="icon" type="image/x-icon" href="/favicon.ico">'
                 '<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>' + PLAYER_CSS +
-                '</head><body><div class="container">' + body + '</div></body></html>')
+                '</head><body><div class="container">'
+                '<div class="brand"><a href="/"><img src="/logo.png" alt="Zip Patchlings" class="logo"></a></div>'
+                + body + '</div></body></html>')
 
     if not history:
         return HTMLResponse(content=_shell('<h1>' + name + '</h1><p class="subtitle">No data yet</p><a class="back" href="/">&larr; Back to leaderboard</a>'))
@@ -1054,6 +1080,8 @@ PLAYER_CSS = """<style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#eee;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;min-height:100vh;padding:20px}
 .container{max-width:1000px;margin:0 auto}
+.brand{text-align:center;margin-bottom:10px}
+.logo{max-width:160px;width:35%;height:auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,.4))}
 h1{text-align:center;font-size:2.3em;margin-bottom:5px;background:linear-gradient(90deg,#4ecca3,#36a2eb);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .subtitle{text-align:center;color:#888;margin-bottom:15px;font-style:italic;font-size:.9em}
 .back{display:inline-block;color:#36a2eb;text-decoration:none;margin-bottom:10px;font-size:.9em}
