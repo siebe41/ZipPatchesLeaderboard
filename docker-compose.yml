@@ -23,7 +23,7 @@ services:
       # Persistent state: leaderboard.json, history.json, and the zipscores
       # buffer DB (ZS_BUFFER_DB) all live under /home.
       - ./data:/home
-    command: ["sh", "/app/start.sh"]
+    command: ["python", "/app/start.py"]
     # --- Zipscores collector / finalizer config (defaults shown) ---
     # environment:
     #   ZS_TIMEZONE: "America/Chicago"            # local TZ for "yesterday" + scheduler

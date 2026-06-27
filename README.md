@@ -104,10 +104,10 @@ data/                   # mounted to /home  (leaderboard.json, history.json, buf
 2. In the **Docker** / **Container Manager** app, select the `leaderboard-app`
    container and click **Restart** (Action → Restart).
 
-Restarting re-runs the container command (`sh /app/start.sh`, which does
-`pip install -r requirements.txt` then `uvicorn main:app ...`), which picks up the
-new mounted `main.py`. First boot after a `requirements.txt` change is ~20–30 s
-slower while deps install.
+Restarting re-runs the container command (`python /app/start.py`, which does
+`pip install -r requirements.txt` then launches `uvicorn main:app ...`), which picks
+up the new mounted `main.py`. First boot after a `requirements.txt` change is
+~20–30 s slower while deps install.
 
 > The favicon (`/favicon.ico`) and logo (`/logo.png`) are served straight from the
 > mounted `app/` folder — updating an image is just a File Station upload + restart.
@@ -126,10 +126,12 @@ The very first time you move to this layout the container has to be **recreated*
    that image with:
    - **Port**: `8000` → `8000`
    - **Volumes**: `…/leaderboard-api/app` → `/app`, `…/leaderboard-api/data` → `/home`
-   - **Execution command / Entrypoint** — use the startup script (the legacy app
-     splits the command on spaces and ignores quotes, so an inline
-     `sh -c "..."` breaks; a script file avoids all quoting):
-     `sh /app/start.sh`
+   - **Execution command / Entrypoint** — use the Python startup script. A Python
+     entrypoint avoids two legacy-Docker pitfalls at once: the Command field splits
+     on spaces / ignores quotes (so inline `sh -c "..."` breaks), and shell scripts
+     break if they pick up Windows CRLF line endings. `python /app/start.py` is two
+     tokens with no quoting, and Python doesn't care about CRLF:
+     `python /app/start.py`
 
 After this one-time step, every future deploy is just **upload files → Restart**.
 
