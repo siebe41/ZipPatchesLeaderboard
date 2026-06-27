@@ -135,6 +135,29 @@ The very first time you move to this layout the container has to be **recreated*
 
 After this one-time step, every future deploy is just **upload files → Restart**.
 
+> **Port mapping is a separate setting from volumes/command, and a freshly
+> created container starts with none.** When recreating the container by hand in
+> the legacy Docker app, it's easy to set the volumes + command but forget the
+> port. Double-check **Port Settings → Local Port `8000` → Container Port `8000`
+> (TCP)**.
+
+### Troubleshooting: log says "Uvicorn running" but the site times out
+
+This means the **app is healthy but unreachable** — the request never gets into
+the container. It is a networking/port problem, not an app problem. Check, in order:
+
+1. **Port mapping** on the container: Local `8000` → Container `8000` (TCP). This is
+   the most common cause right after recreating the container — the inside-container
+   `0.0.0.0:8000` in the log is *not* enough on its own; a host port must be mapped to it.
+2. **Reverse proxy** (DSM → Login Portal → Advanced → Reverse Proxy): the
+   `siebe41.synology.me` rule must point at `localhost:8000`. Recreating the
+   container doesn't change this, but verify it still targets the mapped host port.
+3. **Firewall** / router port forward if reaching it from outside the LAN.
+
+Quick isolation test: browse to `http://<NAS-LAN-IP>:8000/` from a device on the
+same network. If that works but the public URL doesn't, the issue is the reverse
+proxy / firewall, not the container.
+
 ### Deploy with SSH (optional)
 
 `deploy.ps1` still works: it tars the project (excluding `data`, `.git`, caches),
