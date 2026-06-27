@@ -77,7 +77,64 @@ If `ZS_COLLECTOR_TOKEN` is set, add an `X-Token` header to the HTTP action.
 
 ## Deploy
 
-Run `deploy.ps1` from the project folder. It tars the project (excluding `data`,
-`.git`, caches), SCPs it to the NAS, then runs
-`docker-compose up -d --build` on the Synology to rebuild and restart the single
-container.
+The app runs as a **single container with no image build required**. `docker-compose.yml`
+uses a stock `python:3.11-slim` image and bind-mounts the code + brand assets from
+`./app` into the container; dependencies are installed on container start. Nothing is
+baked into a custom image, so **you never need to rebuild** — you only swap files and
+restart.
+
+Folder layout on the NAS (project root, e.g. `/docker/leaderboard-api`):
+
+```
+docker-compose.yml
+dockerfile              # only used for the optional "build elsewhere + import" path
+deploy.ps1
+app/                    # mounted to /app in the container
+  main.py
+  requirements.txt
+  zippatchlings.ico     # served at /favicon.ico
+  zippatchlings.png     # served at /logo.png
+data/                   # mounted to /home  (leaderboard.json, history.json, buffer DB)
+```
+
+### Deploy without SSH (Synology Docker / Container Manager GUI)
+
+1. In **File Station**, upload the changed files into the `app/` folder (overwrite),
+   e.g. `app/main.py` and the brand assets.
+2. In the **Docker** / **Container Manager** app, select the `leaderboard-app`
+   container and click **Restart** (Action → Restart).
+
+Restarting re-runs the container command (`pip install -r requirements.txt &&
+uvicorn main:app ...`), which picks up the new mounted `main.py`. First boot after a
+`requirements.txt` change is ~20–30 s slower while deps install.
+
+> The favicon (`/favicon.ico`) and logo (`/logo.png`) are served straight from the
+> mounted `app/` folder — updating an image is just a File Station upload + restart.
+
+### First-time switch to the no-build setup (one-time, no SSH)
+
+The very first time you move to this layout the container has to be **recreated**
+(its image and volume mounts changed), so a plain Restart isn't enough. Do this once:
+
+1. Upload the new `docker-compose.yml` and the `app/` + `data/` folders into the
+   project directory via **File Station**.
+2. **Container Manager (DSM 7.2+):** create/open a **Project** pointing at
+   `docker-compose.yml` and click **Up** (no Build needed). Done.
+3. **Legacy Docker app (no compose):** pull `python:3.11-slim` under **Registry**,
+   delete the old `leaderboard-app` container, then **Create** a new container from
+   that image with:
+   - **Port**: `8000` → `8000`
+   - **Volumes**: `…/leaderboard-api/app` → `/app`, `…/leaderboard-api/data` → `/home`
+   - **Working directory**: `/app`
+   - **Execution command / Entrypoint**:
+     `sh -c "pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000"`
+
+After this one-time step, every future deploy is just **upload files → Restart**.
+
+### Deploy with SSH (optional)
+
+`deploy.ps1` still works: it tars the project (excluding `data`, `.git`, caches),
+SCPs it to the NAS, then runs `docker-compose up -d` on the Synology. With the
+no-build compose, `--build` is unnecessary (the script's command is harmless either
+way since there is no `build:` directive).
+

@@ -1,15 +1,31 @@
-version: '3.8'
+
+# -------------------------------------------------------------------------- #
+# No-build deploy: the container runs a stock python:3.11-slim image and
+# mounts the app code + brand assets from ./app. Dependencies are installed
+# on container start. This means a deploy is just:
+#     1. Upload changed files into ./app  (File Station — no SSH needed)
+#     2. Restart the container in the Synology Docker / Container Manager app
+# No image rebuild is ever required, because nothing is baked in via Dockerfile.
+# (The Dockerfile is kept only for the optional "build elsewhere + import" path.)
+# -------------------------------------------------------------------------- #
 
 services:
   leaderboard-api:
-    build: .
+    image: python:3.11-slim
     container_name: leaderboard-app
+    working_dir: /app
     ports:
       - "8000:8000"
     volumes:
-      # Maps the "data" folder we created to "/home" inside the container.
-      # The zipscores buffer DB (ZS_BUFFER_DB) also lives here so it persists.
+      # App code + brand assets (main.py, requirements.txt, *.ico, *.png).
+      # Edit/upload files here and just restart the container to deploy.
+      - ./app:/app
+      # Persistent state: leaderboard.json, history.json, and the zipscores
+      # buffer DB (ZS_BUFFER_DB) all live under /home.
       - ./data:/home
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt &&
+             uvicorn main:app --host 0.0.0.0 --port 8000"
     # --- Zipscores collector / finalizer config (defaults shown) ---
     # environment:
     #   ZS_TIMEZONE: "America/Chicago"            # local TZ for "yesterday" + scheduler

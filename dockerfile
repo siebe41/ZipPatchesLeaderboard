@@ -4,14 +4,14 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Copy the requirements file and install dependencies
-COPY requirements.txt .
+COPY app/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy your actual Python code
-COPY main.py .
+# Copy the application code
+COPY app/main.py .
 
 # Copy brand assets (favicon + logo)
-COPY zippatchlings.ico zippatchlings.png ./
+COPY app/zippatchlings.ico app/zippatchlings.png ./
 
 # Expose the port FastAPI uses
 EXPOSE 8000
