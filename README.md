@@ -125,9 +125,9 @@ The very first time you move to this layout the container has to be **recreated*
    that image with:
    - **Port**: `8000` → `8000`
    - **Volumes**: `…/leaderboard-api/app` → `/app`, `…/leaderboard-api/data` → `/home`
-   - **Working directory**: `/app`
-   - **Execution command / Entrypoint**:
-     `sh -c "pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000"`
+   - **Execution command / Entrypoint** (the legacy app has no working-dir field, so
+     `cd /app` is baked into the command):
+     `sh -c "cd /app && pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000"`
 
 After this one-time step, every future deploy is just **upload files → Restart**.
 
