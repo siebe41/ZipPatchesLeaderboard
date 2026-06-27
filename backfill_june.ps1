@@ -1,7 +1,18 @@
+param([switch]$Reset)
 # backfill_june.ps1 - June 2026 backfill for the Zip/Patches leaderboard
-# Idempotent: process() skips any date already in history (already_processed).
-# Does NOT reset. Posts dates in chronological order.
+# Posts dates in chronological order.
+#   Without -Reset: idempotent. process() skips any date already in
+#     history (already_processed), so existing days are NOT overwritten.
+#   With    -Reset: wipes ALL leaderboard + history state first, then
+#     re-ingests every day below. Use this to apply corrected values to
+#     days that were already recorded.
 $base = "https://siebe41.synology.me"
+
+if ($Reset) {
+    Write-Host "RESETTING all leaderboard + history state..." -ForegroundColor Yellow
+    Invoke-RestMethod -Uri "$base/reset" -Method POST | ConvertTo-Json -Compress
+    Write-Host ""
+}
 
 Write-Host 'Ingesting 2026-06-01 (9 scores)...'
 Invoke-RestMethod -Uri "$base/ingest" -Method POST -ContentType "application/json" -Body '{"date": "2026-06-01", "messages": ["Gavin Speed: 5//17", "Keeran Mistry: 5//8", "Tim Hurley: 9//13", "Andrew Osiname: 13//21", "Crystal Schmidt: 6//16", "Andrew Siebert: 4//14", "Brian Hall: 3//4", "Katie Osborn: 8//13", "Dorie Wallace: 12//19"]}' | ConvertTo-Json -Compress
