@@ -1,21 +1,6 @@
 # backfill_june.ps1 - June 2026 backfill for the Zip/Patches leaderboard
 # Idempotent: process() skips any date already in history (already_processed).
 # Does NOT reset. Posts dates in chronological order.
-#
-# NOTES / data caveats:
-#  * Time-style values were converted to total seconds to match the integer
-#    score scale: 2:12->132, 8:34->514, 1:45->105, 1:04->64, 3:41->221,
-#    2.16->136, 2.05->125, 1:50->110, 5:37->337, 1:35->95, 1:27->87.
-#  * Anti-cheat floor: parse_score rejects any total < 9 (MIN_TOTAL_SCORE). This
-#    drops Brian Hall's 3//4 (total 7) on 2026-06-01 and 2026-06-04, so he is
-#    marked "missed" (penalty) those two days. Left as-is to respect the existing
-#    anti-cheat rule. If you consider those legit, credit him AFTER running this
-#    script (offsets below assume these two days were not already in history):
-#      # 2026-06-01: penalty was 14//22; credit real 3//4 and clear the penalty day
-#      # Invoke-RestMethod -Uri "$base/adjust?player=Brian%20Hall&add_zip=-11&add_patch=-18&add_penalties=-1" -Method POST
-#      # 2026-06-04: penalty was 13//20; credit real 3//4 and clear the penalty day
-#      # Invoke-RestMethod -Uri "$base/adjust?player=Brian%20Hall&add_zip=-10&add_patch=-16&add_penalties=-1" -Method POST
-#
 $base = "https://siebe41.synology.me"
 
 Write-Host 'Ingesting 2026-06-01 (9 scores)...'
@@ -74,6 +59,30 @@ Invoke-RestMethod -Uri "$base/ingest" -Method POST -ContentType "application/jso
 
 Write-Host 'Ingesting 2026-06-19 (8 scores)...'
 Invoke-RestMethod -Uri "$base/ingest" -Method POST -ContentType "application/json" -Body '{"date": "2026-06-19", "messages": ["Andrew Siebert: 18//30", "Gavin Speed: 16//59", "Madhav Patel: 19//60", "Keeran Mistry: 23//45", "Tim Hurley: 11//25", "Brian Hall: 35//28", "Dorie Wallace: 56//54", "Andrew Osiname: 90//87"]}' | ConvertTo-Json -Compress
+
+Write-Host 'Ingesting 2026-06-20 (9 scores)...'
+Invoke-RestMethod -Uri "$base/ingest" -Method POST -ContentType "application/json" -Body '{"date": "2026-06-20", "messages": ["Andrew Siebert: 33//34", "Tim Hurley: 22//45", "Gavin Speed: 33//48", "Keeran Mistry: 19//28", "Andrew Osiname: 33//69", "Dorie Wallace: 49//53", "Katie Osborn: 9//27", "Crystal Schmidt: 43//40", "Marie Chalfant: 37//7"]}' | ConvertTo-Json -Compress
+
+Write-Host 'Ingesting 2026-06-21 (8 scores)...'
+Invoke-RestMethod -Uri "$base/ingest" -Method POST -ContentType "application/json" -Body '{"date": "2026-06-21", "messages": ["Andrew Siebert: 26//37", "Tim Hurley: 19//31", "Gavin Speed: 31//49", "Keeran Mistry: 18//53", "Andrew Osiname: 105//35", "Dorie Wallace: 61//66", "Crystal Schmidt: 37//113", "Katie Osborn: 20//40"]}' | ConvertTo-Json -Compress
+
+Write-Host 'Ingesting 2026-06-22 (9 scores)...'
+Invoke-RestMethod -Uri "$base/ingest" -Method POST -ContentType "application/json" -Body '{"date": "2026-06-22", "messages": ["Andrew Siebert: 7//6", "Brian Hall: 8//8", "Gavin Speed: 11//4", "Tim Hurley: 10//5", "Keeran Mistry: 9//9", "Andrew Osiname: 16//13", "Dorie Wallace: 14//16", "Crystal Schmidt: 8//14", "Katie Osborn: 8//6"]}' | ConvertTo-Json -Compress
+
+Write-Host 'Ingesting 2026-06-23 (9 scores)...'
+Invoke-RestMethod -Uri "$base/ingest" -Method POST -ContentType "application/json" -Body '{"date": "2026-06-23", "messages": ["Andrew Siebert: 6//9", "Katie Osborn: 12//14", "Andrew Osiname: 15//25", "Dorie Wallace: 11//22", "Crystal Schmidt: 23//18", "Madhav Patel: 37//13", "Gavin Speed: 6//14", "Tim Hurley: 8//11", "Keeran Mistry: 10//13"]}' | ConvertTo-Json -Compress
+
+Write-Host 'Ingesting 2026-06-24 (8 scores)...'
+Invoke-RestMethod -Uri "$base/ingest" -Method POST -ContentType "application/json" -Body '{"date": "2026-06-24", "messages": ["Andrew Siebert: 12//18", "Brian Hall: 17//16", "Dorie Wallace: 23//40", "Andrew Osiname: 14//15", "Keeran Mistry: 13//33", "Gavin Speed: 18//30", "Tim Hurley: 20//38", "Crystal Schmidt: 24//21"]}' | ConvertTo-Json -Compress
+
+Write-Host 'Ingesting 2026-06-25 (8 scores)...'
+Invoke-RestMethod -Uri "$base/ingest" -Method POST -ContentType "application/json" -Body '{"date": "2026-06-25", "messages": ["Andrew Siebert: 16//31", "Katie Osborn: 16//57", "Crystal Schmidt: 42//105", "Dorie Wallace: 20//33", "Gavin Speed: 38//32", "Tim Hurley: 17//25", "Andrew Osiname: 96//47", "Keeran Mistry: 20//23"]}' | ConvertTo-Json -Compress
+
+Write-Host 'Ingesting 2026-06-26 (8 scores)...'
+Invoke-RestMethod -Uri "$base/ingest" -Method POST -ContentType "application/json" -Body '{"date": "2026-06-26", "messages": ["Andrew Siebert: 12//29", "Katie Osborn: 23//27", "Gavin Speed: 18//29", "Keeran Mistry: 21//17", "Andrew Osiname: 25//215", "Tim Hurley: 15//100", "Crystal Schmidt: 42//100", "Dorie Wallace: 93//27"]}' | ConvertTo-Json -Compress
+
+Write-Host 'Ingesting 2026-06-27 (8 scores)...'
+Invoke-RestMethod -Uri "$base/ingest" -Method POST -ContentType "application/json" -Body '{"date": "2026-06-27", "messages": ["Andrew Siebert: 19//39", "Andrew Osiname: 36//43", "Brian Hall: 17//23", "Keeran Mistry: 28//41", "Katie Osborn: 25//58", "Gavin Speed: 47//54", "Tim Hurley: 21//105", "Marie Chalfant: 146//20"]}' | ConvertTo-Json -Compress
 
 Write-Host ""
 Write-Host "=== LEADERBOARD ==="
