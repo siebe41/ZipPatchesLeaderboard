@@ -104,9 +104,10 @@ data/                   # mounted to /home  (leaderboard.json, history.json, buf
 2. In the **Docker** / **Container Manager** app, select the `leaderboard-app`
    container and click **Restart** (Action → Restart).
 
-Restarting re-runs the container command (`pip install -r requirements.txt &&
-uvicorn main:app ...`), which picks up the new mounted `main.py`. First boot after a
-`requirements.txt` change is ~20–30 s slower while deps install.
+Restarting re-runs the container command (`sh /app/start.sh`, which does
+`pip install -r requirements.txt` then `uvicorn main:app ...`), which picks up the
+new mounted `main.py`. First boot after a `requirements.txt` change is ~20–30 s
+slower while deps install.
 
 > The favicon (`/favicon.ico`) and logo (`/logo.png`) are served straight from the
 > mounted `app/` folder — updating an image is just a File Station upload + restart.
@@ -125,9 +126,10 @@ The very first time you move to this layout the container has to be **recreated*
    that image with:
    - **Port**: `8000` → `8000`
    - **Volumes**: `…/leaderboard-api/app` → `/app`, `…/leaderboard-api/data` → `/home`
-   - **Execution command / Entrypoint** (the legacy app has no working-dir field, so
-     `cd /app` is baked into the command):
-     `sh -c "cd /app && pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000"`
+   - **Execution command / Entrypoint** — use the startup script (the legacy app
+     splits the command on spaces and ignores quotes, so an inline
+     `sh -c "..."` breaks; a script file avoids all quoting):
+     `sh /app/start.sh`
 
 After this one-time step, every future deploy is just **upload files → Restart**.
 

@@ -23,9 +23,7 @@ services:
       # Persistent state: leaderboard.json, history.json, and the zipscores
       # buffer DB (ZS_BUFFER_DB) all live under /home.
       - ./data:/home
-    command: >
-      sh -c "pip install --no-cache-dir -r requirements.txt &&
-             uvicorn main:app --host 0.0.0.0 --port 8000"
+    command: ["sh", "/app/start.sh"]
     # --- Zipscores collector / finalizer config (defaults shown) ---
     # environment:
     #   ZS_TIMEZONE: "America/Chicago"            # local TZ for "yesterday" + scheduler
