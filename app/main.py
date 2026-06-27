@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
@@ -29,6 +29,26 @@ app.add_middleware(
 
 STATE_FILE = "/home/leaderboard.json"
 HISTORY_FILE = "/home/history.json"
+
+# Brand assets (favicon + logo) live alongside main.py in the image.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FAVICON_PATH = os.path.join(BASE_DIR, "zippatchlings.ico")
+LOGO_PATH = os.path.join(BASE_DIR, "zippatchlings.png")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    if os.path.exists(FAVICON_PATH):
+        return FileResponse(FAVICON_PATH, media_type="image/x-icon")
+    return JSONResponse(status_code=404, content={"error": "not found"})
+
+
+@app.get("/logo.png", include_in_schema=False)
+def logo():
+    if os.path.exists(LOGO_PATH):
+        return FileResponse(LOGO_PATH, media_type="image/png")
+    return JSONResponse(status_code=404, content={"error": "not found"})
+
 
 
 class Payload(BaseModel):
@@ -179,7 +199,11 @@ def process(payload):
 
 @app.post("/ingest")
 def ingest(payload: Payload):
-    return process(payload)
+    result = process(payload)
+    caught_up = zs_catch_up()
+    if caught_up:
+        return {"status": result.get("status"), "result": result, "finalized": caught_up}
+    return result
 
 
 @app.get("/leaderboard")
@@ -374,6 +398,28 @@ def zs_finalize(target_date=None):
     return {"date": target_date, "count": len(lines), "result": result}
 
 
+def zs_catch_up():
+    """Finalize any buffered past days (strictly before today, local time) that are
+    not yet present in history. Catches days the daily scheduler missed (container
+    downtime, late-arriving messages). Safe to call often: process() is idempotent,
+    so days already scored are skipped."""
+    tz = _zs_tz()
+    today_local = datetime.now(tz).date().strftime("%Y-%m-%d")
+    history = load_json(HISTORY_FILE)
+    with _zs_db_lock:
+        rows = _zs_conn.execute(
+            "SELECT DISTINCT local_date FROM buffer WHERE local_date < ?",
+            (today_local,),
+        ).fetchall()
+    pending = sorted(d[0] for d in rows if d[0] and d[0] not in history)
+    finalized = []
+    for d in pending:
+        res = zs_finalize(target_date=d)
+        if res.get("result", {}).get("status") == "ok":
+            finalized.append(d)
+    return finalized
+
+
 @app.post("/collect")
 async def collect(request: Request):
     if ZS_COLLECTOR_TOKEN and request.headers.get("X-Token") != ZS_COLLECTOR_TOKEN:
@@ -384,7 +430,8 @@ async def collect(request: Request):
         return JSONResponse(status_code=400, content={"error": f"bad json: {exc}"})
     messages = _zs_extract_messages(payload)
     new_count = _zs_upsert(messages)
-    return {"received": len(messages), "new": new_count}
+    caught_up = zs_catch_up()
+    return {"received": len(messages), "new": new_count, "finalized": caught_up}
 
 
 @app.post("/finalize")
@@ -429,6 +476,7 @@ def compute_filtered_stats(history, filtered_days):
         patch_wins = 0
         total_wins = 0
         penalty_count = 0
+        penalty_dates = []
 
         for d in filtered_days:
             if d not in history:
@@ -442,6 +490,7 @@ def compute_filtered_stats(history, filtered_days):
                 real_scores.append(pdata)
             else:
                 penalty_count += 1
+                penalty_dates.append(d)
 
             # Daily rank
             day_entries = [(p2, day_total_val(v2)) for p2, v2 in history[d].items()]
@@ -517,6 +566,7 @@ def compute_filtered_stats(history, filtered_days):
             "avg_patch": round(pt / active, 2) if active > 0 else 0,
             "zip_wins": zip_wins, "patch_wins": patch_wins, "total_wins": total_wins,
             "missed": penalty_count, "days": active,
+            "missed_dates": penalty_dates,
             "best_zip": min(real_zips), "worst_zip": max(real_zips),
             "best_patch": min(real_patches), "worst_patch": max(real_patches),
             "best_day": min(real_totals), "worst_day": max(real_totals),
@@ -526,6 +576,30 @@ def compute_filtered_stats(history, filtered_days):
         }
 
     return results
+
+
+def filter_days_by_mode(all_sorted_days, mode):
+    """Return the subset of days for a given mode (week/month/year/ytd/all),
+    anchored to the most recent day in the data. Shared by the dashboard and
+    the per-player history page so both stay in sync."""
+    if not all_sorted_days:
+        return []
+    latest_day = all_sorted_days[-1]
+    latest_dt = datetime.strptime(latest_day, "%Y-%m-%d")
+    if mode == "week":
+        week_start = latest_dt - timedelta(days=latest_dt.weekday())
+        week_end = week_start + timedelta(days=6)
+        fd = [d for d in all_sorted_days
+              if week_start.strftime("%Y-%m-%d") <= d <= week_end.strftime("%Y-%m-%d")]
+    elif mode == "month":
+        fd = [d for d in all_sorted_days if d[:7] == latest_day[:7]]
+    elif mode in ("year", "ytd"):
+        fd = [d for d in all_sorted_days if d[:4] == latest_day[:4]]
+    else:
+        fd = list(all_sorted_days)
+    if not fd:
+        fd = list(all_sorted_days)
+    return fd
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -544,20 +618,7 @@ def dashboard(mode: str = "week"):
     latest_dt = datetime.strptime(latest_day, "%Y-%m-%d")
 
     # Filter days by mode
-    if mode == "week":
-        week_start = latest_dt - timedelta(days=latest_dt.weekday())
-        week_end = week_start + timedelta(days=6)
-        filtered_days = [d for d in all_sorted_days if week_start.strftime("%Y-%m-%d") <= d <= week_end.strftime("%Y-%m-%d")]
-    elif mode == "month":
-        filtered_days = [d for d in all_sorted_days if d[:7] == latest_day[:7]]
-    elif mode in ("year", "ytd"):
-        filtered_days = [d for d in all_sorted_days if d[:4] == latest_day[:4]]
-    else:
-        filtered_days = list(all_sorted_days)
-
-    if not filtered_days:
-        filtered_days = list(all_sorted_days)
-
+    filtered_days = filter_days_by_mode(all_sorted_days, mode)
     colors = ["#4ecca3","#36a2eb","#e94560","#ff6384","#ffcd56","#9966ff","#ff9f40","#c9cbcf","#4bc0c0","#ff6633"]
     all_players = list(state.keys())
     player_colors = {p: colors[i % len(colors)] for i, p in enumerate(all_players)}
@@ -571,7 +632,8 @@ def dashboard(mode: str = "week"):
             "player": name, "total": s["total"],
             "avg_zip": s["avg_zip"], "avg_patch": s["avg_patch"],
             "zip_wins": s["zip_wins"], "patch_wins": s["patch_wins"],
-            "total_wins": s["total_wins"], "missed": s["missed"], "days": s["days"]
+            "total_wins": s["total_wins"], "missed": s["missed"], "days": s["days"],
+            "missed_dates": s.get("missed_dates", [])
         })
     rows.sort(key=lambda x: x["total"])
 
@@ -644,15 +706,39 @@ def dashboard(mode: str = "week"):
 
     # Trash talk
     if len(rows) >= 2:
+        winner = rows[0]["player"]
+        loser = rows[-1]["player"]
         trash_options = [
-            rows[0]["player"] + " is absolutely cooking right now",
-            rows[-1]["player"] + "... we need to talk",
-            rows[0]["player"] + " woke up and chose dominance",
-            rows[-1]["player"] + " might want to uninstall LinkedIn",
-            rows[0]["player"] + " is ice cold under pressure",
-            rows[-1]["player"] + " treating this like a speedrun in reverse",
-            rows[0]["player"] + " built different",
-            "RIP " + rows[-1]["player"] + "'s leaderboard hopes",
+            winner + " is absolutely cooking right now",
+            loser + "... we need to talk",
+            winner + " woke up and chose dominance",
+            loser + " might want to uninstall LinkedIn",
+            winner + " is ice cold under pressure",
+            loser + " treating this like a speedrun in reverse",
+            winner + " built different",
+            "RIP " + loser + "'s leaderboard hopes",
+            winner + " is rent free in everyone's head",
+            loser + " is the reason we can't have nice things",
+            winner + " didn't come to play, they came to slay",
+            loser + " playing chess while everyone else plays checkers... badly",
+            winner + " is on a different gravitational plane",
+            "Somebody check on " + loser + ", they've flatlined",
+            winner + " is the final boss of this leaderboard",
+            loser + " brought a spoon to a gunfight",
+            winner + " making it look criminally easy",
+            loser + " is speedrunning the walk of shame",
+            "The gap between " + winner + " and " + loser + " is a felony",
+            winner + " has entered their villain era",
+            loser + " might need a wellness check",
+            winner + " is built like a final exam answer key",
+            "Is " + loser + " ok? Asking for the whole group chat",
+            winner + " could do this in their sleep, and probably did",
+            loser + " is allergic to the top of the board",
+            winner + " is just showing off at this point",
+            loser + " contributing nothing but vibes",
+            winner + " is the blueprint",
+            "history will not be kind to " + loser,
+            winner + " left no crumbs",
         ]
         trash_line = random.choice(trash_options)
     else:
@@ -666,6 +752,7 @@ def dashboard(mode: str = "week"):
             "avg_zip": r["avg_zip"], "avg_patch": r["avg_patch"],
             "zip_wins": r["zip_wins"], "patch_wins": r["patch_wins"],
             "total_wins": r["total_wins"], "missed": r["missed"],
+            "missed_days": r.get("missed_dates", []),
             "days": r["days"], "move": movement.get(r["player"], "")
         })
     table_data_json = json.dumps(table_json_rows)
@@ -749,6 +836,8 @@ def dashboard(mode: str = "week"):
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#eee;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;min-height:100vh;padding:20px}
 .container{max-width:1200px;margin:0 auto}
+.brand{text-align:center;margin-bottom:10px}
+.logo{max-width:200px;width:40%;height:auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,.4))}
 h1{text-align:center;font-size:2.5em;margin-bottom:5px;background:linear-gradient(90deg,#4ecca3,#36a2eb);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .subtitle{text-align:center;color:#888;margin-bottom:10px;font-style:italic}
 .mode-bar{display:flex;justify-content:center;gap:10px;margin-bottom:30px;flex-wrap:wrap}
@@ -766,7 +855,8 @@ th:hover{background:rgba(78,204,163,.25)}
 th .sort-arrow{margin-left:4px;font-size:.7em}
 td{padding:12px;border-bottom:1px solid rgba(255,255,255,.05)}
 tr:hover{background:rgba(255,255,255,.05)}
-.player{font-weight:bold;font-size:1.1em}.total{font-weight:bold;color:#4ecca3;font-size:1.2em}.move{font-size:1.1em}.missed{color:#e94560}
+.player{font-weight:bold;font-size:1.1em}.total{font-weight:bold;color:#4ecca3;font-size:1.2em}.move{font-size:1.1em}.missed{color:#e94560;cursor:help;border-bottom:1px dotted #e94560}
+.player-link{color:inherit;text-decoration:none;border-bottom:1px dotted rgba(255,255,255,.3)}.player-link:hover{color:#4ecca3;border-bottom-color:#4ecca3}
 .donuts{display:flex;gap:20px;flex-wrap:wrap;justify-content:center;margin-bottom:40px}
 .donut-box{background:rgba(255,255,255,.03);border-radius:15px;padding:20px;width:300px;position:relative}
 .donut-box h3{text-align:center;margin-bottom:15px;color:#888}
@@ -798,8 +888,11 @@ function renderTable(){
     let html="";
     tableData.forEach((r,i)=>{
         const rank=i<3?["#1","#2","#3"][i]:"#"+(i+1);
-        const mb=r.missed>0?'<span class=missed>'+r.missed+'</span>':'0';
-        html+="<tr><td>"+rank+"</td><td class='player'>"+r.player+"</td><td class='total'>"+r.total+"</td><td>"+r.avg_zip+"</td><td>"+r.avg_patch+"</td><td>Z:"+r.zip_wins+" P:"+r.patch_wins+" T:"+r.total_wins+"</td><td>"+mb+"</td><td>"+r.days+"</td><td class='move'>"+r.move+"</td></tr>";
+        let missTitle="No missed days";
+        if(r.missed>0&&r.missed_days&&r.missed_days.length){missTitle="Missed: "+r.missed_days.join(", ");}
+        const mb=r.missed>0?'<span class="missed" title="'+missTitle+'">'+r.missed+'</span>':'0';
+        const pname="<a class='player-link' href='/player?name="+encodeURIComponent(r.player)+"&mode=__MODE__'>"+r.player+"</a>";
+        html+="<tr><td>"+rank+"</td><td class='player'>"+pname+"</td><td class='total'>"+r.total+"</td><td>"+r.avg_zip+"</td><td>"+r.avg_patch+"</td><td>Z:"+r.zip_wins+" P:"+r.patch_wins+" T:"+r.total_wins+"</td><td>"+mb+"</td><td>"+r.days+"</td><td class='move'>"+r.move+"</td></tr>";
     });
     tbody.innerHTML=html;
 }
@@ -830,15 +923,17 @@ new Chart(document.getElementById('trendChart'),{type:'line',data:{labels:__TREN
 </script>"""
 
     js = js_template.replace("__TABLE_DATA__", table_data_json)
+    js = js.replace("__MODE__", mode)
     js = js.replace("__ZL__", zl).replace("__ZD__", zd).replace("__ZC__", zc)
     js = js.replace("__PL__", pl).replace("__PD__", pd).replace("__PC__", pc)
     js = js.replace("__TL__", tl).replace("__TD__", td).replace("__TC__", tc)
     js = js.replace("__CHART_LABELS__", chart_labels).replace("__CHART_DATA__", chart_data_json).replace("__CHART_COLORS__", chart_colors_json)
     js = js.replace("__TREND_LABELS__", trend_labels).replace("__TREND_DATASETS__", trend_json)
 
-    html = '<!DOCTYPE html><html><head><title>Zip Patchlings</title><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="300"><script src="https://cdn.jsdelivr.net/npm/chart.js"></script>'
+    html = '<!DOCTYPE html><html><head><title>Zip Patchlings</title><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="300"><link rel="icon" type="image/x-icon" href="/favicon.ico"><script src="https://cdn.jsdelivr.net/npm/chart.js"></script>'
     html += css
     html += '</head><body><div class="container">'
+    html += '<div class="brand"><img src="/logo.png" alt="Zip Patchlings" class="logo"></div>'
     html += '<h1>Zip Patchlings</h1>'
     html += '<p class="subtitle">Consistency beats talent. Miss a day? Pay the price.</p>'
     html += mode_html
@@ -869,3 +964,146 @@ new Chart(document.getElementById('trendChart'),{type:'line',data:{labels:__TREN
     html += '</body></html>'
 
     return HTMLResponse(content=html)
+
+
+@app.get("/player", response_class=HTMLResponse)
+def player_history(name: str, mode: str = "week"):
+    state = load_json(STATE_FILE)
+    history = load_json(HISTORY_FILE)
+
+    def _shell(body):
+        return ('<!DOCTYPE html><html><head><title>' + name + ' - Zip Patchlings</title>'
+                '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<link rel="icon" type="image/x-icon" href="/favicon.ico">'
+                '<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>' + PLAYER_CSS +
+                '</head><body><div class="container">'
+                '<div class="brand"><a href="/"><img src="/logo.png" alt="Zip Patchlings" class="logo"></a></div>'
+                + body + '</div></body></html>')
+
+    if not history:
+        return HTMLResponse(content=_shell('<h1>' + name + '</h1><p class="subtitle">No data yet</p><a class="back" href="/">&larr; Back to leaderboard</a>'))
+
+    all_sorted_days = sorted(history.keys())
+    filtered_days = filter_days_by_mode(all_sorted_days, mode)
+
+    # Per-day rows for this player
+    day_rows = []
+    totals = []
+    labels = []
+    for d in filtered_days:
+        pdata = get_player_day(history, d, name)
+        if not pdata:
+            continue
+        # daily rank among that day's participants (lower total = better)
+        day_data = history.get(d, {})
+        ranking = sorted(day_data.items(), key=lambda x: day_total_val(x[1]))
+        rank = next((i + 1 for i, (p, _) in enumerate(ranking) if p == name), None)
+        day_rows.append({
+            "date": d, "zip": pdata.get("zip", 0), "patch": pdata.get("patch", 0),
+            "total": pdata.get("total", 0), "rank": rank,
+            "penalty": pdata.get("penalty", False), "field": len(ranking),
+        })
+        labels.append(d)
+        totals.append(pdata.get("total", 0))
+
+    if not day_rows:
+        return HTMLResponse(content=_shell('<h1>' + name + '</h1><p class="subtitle">No data for this period</p>' + _player_mode_bar(name, mode) + '<a class="back" href="/">&larr; Back to leaderboard</a>'))
+
+    stats = compute_filtered_stats(history, filtered_days).get(name, {})
+
+    posted = sum(1 for r in day_rows if not r["penalty"])
+    penalty = sum(1 for r in day_rows if r["penalty"])
+
+    # Summary cards
+    cards = [
+        ("Total", stats.get("total", "-")),
+        ("Avg Zip", stats.get("avg_zip", "-")),
+        ("Avg Patch", stats.get("avg_patch", "-")),
+        ("Days Posted", posted),
+        ("Penalty Days", penalty),
+        ("Participation", str(stats.get("participation", 0)) + "%"),
+        ("Avg Rank", stats.get("avg_rank", "-")),
+        ("Best Day", stats.get("best_day", "-")),
+        ("Worst Day", stats.get("worst_day", "-")),
+        ("Streak", stats.get("streak", "-")),
+    ]
+    cards_html = '<div class="pcards">'
+    for label, val in cards:
+        cards_html += '<div class="pcard"><div class="pl">' + label + '</div><div class="pv">' + str(val) + '</div></div>'
+    cards_html += '</div>'
+
+    # Per-day table (most recent first)
+    table_html = ('<table class="phist"><thead><tr><th>Date</th><th>Zip</th><th>Patches</th>'
+                  '<th>Total</th><th>Daily Rank</th><th>Status</th></tr></thead><tbody>')
+    for r in reversed(day_rows):
+        cls = ' class="pen-row"' if r["penalty"] else ''
+        rank_txt = ('#' + str(r["rank"]) + ' / ' + str(r["field"])) if r["rank"] else '-'
+        status = '<span class="pen-tag">PENALTY</span>' if r["penalty"] else '<span class="ok-tag">posted</span>'
+        table_html += ('<tr' + cls + '><td>' + r["date"] + '</td><td>' + str(r["zip"]) +
+                       '</td><td>' + str(r["patch"]) + '</td><td class="total">' + str(r["total"]) +
+                       '</td><td>' + rank_txt + '</td><td>' + status + '</td></tr>')
+    table_html += '</tbody></table>'
+
+    # Trend chart
+    chart_labels = json.dumps(labels)
+    chart_totals = json.dumps(totals)
+    point_colors = json.dumps(["#e94560" if r["penalty"] else "#4ecca3" for r in day_rows])
+    chart_js = ('<script>new Chart(document.getElementById("ptrend"),{type:"line",data:{labels:' +
+                chart_labels + ',datasets:[{label:"Daily Total",data:' + chart_totals +
+                ',borderColor:"#36a2eb",pointBackgroundColor:' + point_colors +
+                ',pointRadius:5,fill:false,tension:0.3}]},options:{plugins:{legend:{display:false}},'
+                'scales:{y:{ticks:{color:"#888"},grid:{color:"rgba(255,255,255,0.05)"}},'
+                'x:{ticks:{color:"#888"},grid:{display:false}}}});</script>')
+
+    body = ('<a class="back" href="/?mode=' + mode + '">&larr; Back to leaderboard</a>'
+            '<h1>' + name + '</h1>'
+            '<p class="subtitle">Penalty days (highlighted) inherit the day\'s worst score +1</p>' +
+            _player_mode_bar(name, mode) + cards_html +
+            '<div class="chart-box"><h3>Daily Total Trend</h3><canvas id="ptrend"></canvas></div>' +
+            table_html + chart_js)
+
+    return HTMLResponse(content=_shell(body))
+
+
+def _player_mode_bar(name, mode):
+    from urllib.parse import quote
+    modes = [("week", "Week"), ("month", "Month"), ("year", "Year"), ("ytd", "YTD"), ("all", "All Time")]
+    bar = '<div class="mode-bar">'
+    for m_key, m_label in modes:
+        active_cls = " active" if m_key == mode else ""
+        bar += '<a href="/player?name=' + quote(name) + '&mode=' + m_key + '" class="mode-btn' + active_cls + '">' + m_label + '</a>'
+    bar += '</div>'
+    return bar
+
+
+PLAYER_CSS = """<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#eee;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;min-height:100vh;padding:20px}
+.container{max-width:1000px;margin:0 auto}
+.brand{text-align:center;margin-bottom:10px}
+.logo{max-width:160px;width:35%;height:auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,.4))}
+h1{text-align:center;font-size:2.3em;margin-bottom:5px;background:linear-gradient(90deg,#4ecca3,#36a2eb);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.subtitle{text-align:center;color:#888;margin-bottom:15px;font-style:italic;font-size:.9em}
+.back{display:inline-block;color:#36a2eb;text-decoration:none;margin-bottom:10px;font-size:.9em}
+.back:hover{color:#4ecca3}
+.mode-bar{display:flex;justify-content:center;gap:10px;margin-bottom:25px;flex-wrap:wrap}
+.mode-btn{background:rgba(255,255,255,.05);color:#888;padding:8px 20px;border-radius:20px;text-decoration:none;font-size:.9em;border:1px solid rgba(255,255,255,.1);transition:all .2s}
+.mode-btn:hover{background:rgba(255,255,255,.1);color:#eee}
+.mode-btn.active{background:rgba(78,204,163,.2);color:#4ecca3;border-color:#4ecca3}
+.pcards{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-bottom:30px}
+.pcard{background:rgba(255,255,255,.05);border-radius:12px;padding:14px 18px;text-align:center;min-width:120px;border:1px solid rgba(255,255,255,.1)}
+.pl{font-size:.7em;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+.pv{font-size:1.4em;font-weight:bold;color:#4ecca3}
+.chart-box{background:rgba(255,255,255,.03);border-radius:15px;padding:20px;margin-bottom:30px}
+.chart-box h3{text-align:center;margin-bottom:15px;color:#888}
+table.phist{width:100%;border-collapse:collapse;margin-bottom:40px;background:rgba(255,255,255,.03);border-radius:15px;overflow:hidden}
+.phist th{background:rgba(78,204,163,.15);padding:14px 12px;text-align:left;font-size:.85em;color:#4ecca3;text-transform:uppercase;letter-spacing:1px}
+.phist td{padding:12px;border-bottom:1px solid rgba(255,255,255,.05)}
+.phist tr:hover{background:rgba(255,255,255,.05)}
+.phist .total{font-weight:bold;color:#4ecca3}
+.pen-row{background:rgba(233,69,96,.12)}
+.pen-row:hover{background:rgba(233,69,96,.2)}
+.pen-tag{background:#e94560;color:#fff;padding:2px 8px;border-radius:6px;font-size:.75em;font-weight:bold}
+.ok-tag{color:#4ecca3;font-size:.85em}
+@media(max-width:768px){.pcards{gap:8px}.pcard{min-width:90px;padding:10px 12px}table.phist{font-size:.85em}}
+</style>"""
