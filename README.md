@@ -158,6 +158,34 @@ Quick isolation test: browse to `http://<NAS-LAN-IP>:8000/` from a device on the
 same network. If that works but the public URL doesn't, the issue is the reverse
 proxy / firewall, not the container.
 
+### Troubleshooting: site times out remotely but works over IPv4
+
+If `https://siebe41.synology.me/` hangs in the browser but a direct IPv4 request
+succeeds, the culprit is a **stale IPv6 (AAAA) DNS record** on the synology.me
+DDNS. The hostname publishes both an A record (IPv4, working) and an AAAA record
+(IPv6). If the NAS's IPv6 prefix changed or inbound IPv6 isn't forwarded, the AAAA
+is dead — and browsers prefer IPv6, so they try the dead address first and hang.
+
+Diagnose from any machine (no LAN access needed):
+
+```
+curl -4 -o NUL -m 20 -w "ipv4 http=%{http_code} ip=%{remote_ip}\n" https://siebe41.synology.me/
+curl -6 -o NUL -m 20 -w "ipv6 http=%{http_code}\n"                 https://siebe41.synology.me/
+nslookup -type=AAAA siebe41.synology.me
+```
+
+If IPv4 returns `200` and IPv6 times out, it's this. Fixes (any one):
+
+1. **Stop publishing IPv6:** Control Panel → **Network → Network Interface → LAN →
+   IPv6 → Off**. After the DNS TTL the AAAA disappears and every client uses IPv4.
+2. Or disable the IPv6 external address on the **DDNS** entry (External Access →
+   DDNS) if your DSM exposes it.
+3. Or actually fix inbound IPv6 (router + NAS firewall allow `:443` over v6, and the
+   AAAA must match the NAS's current global v6 address).
+
+Immediate client-side workaround: pin IPv4 in `hosts`
+(`162.204.54.213  siebe41.synology.me`) and `ipconfig /flushdns`.
+
 ### Deploy with SSH (optional)
 
 `deploy.ps1` still works: it tars the project (excluding `data`, `.git`, caches),
