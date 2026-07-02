@@ -32,4 +32,7 @@ services:
     #   ZS_RETENTION_DAYS: "30"                   # prune buffered messages older than this
     #   ZS_FINALIZE_HOUR: "2"                     # daily finalize run hour (local time)
     #   ZS_FINALIZE_MINUTE: "10"                  # daily finalize run minute (local time)
+    # --- Hidden admin score-adjust page (unlinked; excluded from /docs) ---
+    #   ZS_ADMIN_PATH: "/backstage"               # URL of the hidden adjust page
+    #   ZS_ADMIN_TOKEN: ""                        # if set, page+APIs require ?token=...
     restart: unless-stopped
