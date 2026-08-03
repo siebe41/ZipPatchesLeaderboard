@@ -1191,58 +1191,78 @@ def dashboard(mode: str = "week"):
 
     css = """<style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#eee;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;min-height:100vh;padding:20px}
+:root{--s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--s6:36px;
+--line:rgba(255,255,255,.1);--surface:rgba(255,255,255,.05);--dim:#8a94a6}
+body{background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#eee;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;min-height:100vh;padding:var(--s5) var(--s4)}
 .container{max-width:1200px;margin:0 auto}
-.brand{text-align:center;margin-bottom:10px}
-.logo{max-width:200px;width:40%;height:auto;filter:drop-shadow(0 4px 12px rgba(0,0,0,.4))}
-h1{text-align:center;font-size:2.5em;margin-bottom:5px;background:linear-gradient(90deg,#4ecca3,#36a2eb);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.subtitle{text-align:center;color:#888;margin-bottom:10px;font-style:italic}
-.mode-bar{display:flex;justify-content:center;gap:10px;margin-bottom:30px;flex-wrap:wrap}
-.mode-btn{background:rgba(255,255,255,.05);color:#888;padding:8px 20px;border-radius:20px;text-decoration:none;font-size:.9em;border:1px solid rgba(255,255,255,.1);transition:all .2s}
-.mode-btn:hover{background:rgba(255,255,255,.1);color:#eee}
-.mode-btn.active{background:rgba(78,204,163,.2);color:#4ecca3;border-color:#4ecca3}
-.highlights{display:flex;gap:20px;margin-bottom:30px;flex-wrap:wrap;justify-content:center}
-.card{background:rgba(255,255,255,.05);border-radius:15px;padding:20px 30px;text-align:center;min-width:200px;border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(10px)}
-.card.winner{border-color:#4ecca3}.card.loser{border-color:#e94560}.card.trash{border-color:#ffcd56;min-width:300px}.card.weekly{border-color:#9966ff}
-.card.away{border-color:#36a2eb;min-width:260px}.card.away .value{color:#36a2eb;font-size:1.05em}
-.card.away .thru{color:#888;font-size:.8em;font-weight:normal}
-.nav-bar{display:flex;justify-content:center;gap:10px;margin-bottom:25px;flex-wrap:wrap}
-.nav-btn{background:rgba(54,162,235,.12);color:#8fd0ff;padding:9px 18px;border-radius:10px;text-decoration:none;font-size:.85em;border:1px solid rgba(54,162,235,.35);transition:all .2s}
+.masthead{display:flex;align-items:center;gap:var(--s4);flex-wrap:wrap;padding-bottom:var(--s4);margin-bottom:var(--s5);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:var(--s3);margin-right:auto}
+.logo{width:58px;height:auto;flex-shrink:0;filter:drop-shadow(0 4px 12px rgba(0,0,0,.4))}
+h1{font-size:1.8em;line-height:1.05;letter-spacing:-.01em;background:linear-gradient(90deg,#4ecca3,#36a2eb);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.subtitle{color:var(--dim);font-style:italic;font-size:.82em;margin-top:3px}
+.controls{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);flex-wrap:wrap;margin-bottom:var(--s5)}
+.mode-bar{display:inline-flex;gap:var(--s1);background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:12px;padding:var(--s1)}
+.mode-btn{color:var(--dim);padding:7px 16px;border-radius:9px;text-decoration:none;font-size:.85em;white-space:nowrap;transition:background .2s,color .2s}
+.mode-btn:hover{background:rgba(255,255,255,.07);color:#eee}
+.mode-btn.active{background:rgba(78,204,163,.18);color:#4ecca3}
+.view-meta{color:var(--dim);font-size:.75em;letter-spacing:1.2px;text-transform:uppercase;white-space:nowrap}
+.highlights{display:grid;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));gap:var(--s3);margin-bottom:var(--s3)}
+.card{background:var(--surface);border-radius:14px;padding:var(--s4);text-align:center;border:1px solid var(--line);backdrop-filter:blur(10px)}
+.card.winner{border-color:#4ecca3}.card.loser{border-color:#e94560}.card.weekly{border-color:#9966ff}
+.card.trash{border-color:#ffcd56;display:flex;align-items:baseline;justify-content:center;gap:var(--s3);padding:var(--s3) var(--s4);margin-bottom:var(--s5)}
+.card.trash h3{margin-bottom:0;white-space:nowrap}
+.card.away{border-color:#36a2eb}.card.away .value{color:#36a2eb;font-size:1.05em;line-height:1.5}
+.card.away .thru{color:var(--dim);font-size:.8em;font-weight:normal}
+.nav-bar{display:flex;gap:var(--s2);flex-wrap:wrap}
+.nav-btn{background:rgba(54,162,235,.12);color:#8fd0ff;padding:8px 15px;border-radius:9px;text-decoration:none;font-size:.83em;white-space:nowrap;border:1px solid rgba(54,162,235,.35);transition:background .2s,color .2s}
 .nav-btn:hover{background:rgba(54,162,235,.25);color:#fff}
-.nav-btn.ghost{background:rgba(255,255,255,.04);color:#888;border-color:rgba(255,255,255,.12)}
+.nav-btn.ghost{background:rgba(255,255,255,.04);color:var(--dim);border-color:rgba(255,255,255,.12)}
 .nav-btn.ghost:hover{color:#eee}
-.card h3{font-size:.9em;color:#888;margin-bottom:8px}.card .value{font-size:1.4em;font-weight:bold}
-.card.winner .value{color:#4ecca3}.card.loser .value{color:#e94560}.card.trash .value{color:#ffcd56;font-size:1.1em}.card.weekly .value{color:#9966ff}
-table{width:100%;border-collapse:collapse;margin-bottom:40px;background:rgba(255,255,255,.03);border-radius:15px;overflow:hidden}
-th{background:rgba(78,204,163,.15);padding:14px 12px;text-align:left;font-size:.85em;color:#4ecca3;text-transform:uppercase;letter-spacing:1px;cursor:pointer;user-select:none;white-space:nowrap}
+.card h3{font-size:.72em;color:var(--dim);margin-bottom:var(--s2);text-transform:uppercase;letter-spacing:1.2px}.card .value{font-size:1.35em;font-weight:bold;line-height:1.25}
+.card.winner .value{color:#4ecca3}.card.loser .value{color:#e94560}.card.trash .value{color:#ffcd56;font-size:1.05em}.card.weekly .value{color:#9966ff}
+.table-wrap{overflow-x:auto;margin-bottom:var(--s6);border-radius:15px}
+table{width:100%;min-width:620px;border-collapse:collapse;background:rgba(255,255,255,.03);border-radius:15px;overflow:hidden}
+th{background:rgba(78,204,163,.15);padding:13px 12px;text-align:left;font-size:.78em;color:#4ecca3;text-transform:uppercase;letter-spacing:1px;cursor:pointer;user-select:none;white-space:nowrap}
 th:hover{background:rgba(78,204,163,.25)}
 th .sort-arrow{margin-left:4px;font-size:.7em}
-td{padding:12px;border-bottom:1px solid rgba(255,255,255,.05)}
+td{padding:11px 12px;border-bottom:1px solid rgba(255,255,255,.05)}
 tr:hover{background:rgba(255,255,255,.05)}
-.player{font-weight:bold;font-size:1.1em}.total{font-weight:bold;color:#4ecca3;font-size:1.2em}.move{font-size:1.1em}.missed{color:#e94560;cursor:help;border-bottom:1px dotted #e94560}
+.player{font-weight:bold;font-size:1.05em}.total{font-weight:bold;color:#4ecca3;font-size:1.15em}.move{font-size:1.05em}.missed{color:#e94560;cursor:help;border-bottom:1px dotted #e94560}
 .away-cell{color:#36a2eb;cursor:help;border-bottom:1px dotted #36a2eb}
 .player-link{color:inherit;text-decoration:none;border-bottom:1px dotted rgba(255,255,255,.3)}.player-link:hover{color:#4ecca3;border-bottom-color:#4ecca3}
-.donuts{display:flex;gap:20px;flex-wrap:wrap;justify-content:center;margin-bottom:40px}
-.donut-box{background:rgba(255,255,255,.03);border-radius:15px;padding:20px;width:300px;position:relative}
-.donut-box h3{text-align:center;margin-bottom:15px;color:#888}
+.donuts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:var(--s4);margin-bottom:var(--s6)}
+.donut-box{background:rgba(255,255,255,.03);border-radius:15px;padding:var(--s4);position:relative}
+.donut-box h3{text-align:center;margin-bottom:var(--s3);color:var(--dim);font-size:.85em;text-transform:uppercase;letter-spacing:1.2px}
 .donut-center{position:absolute;top:55%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none}
-.donut-center .num{font-size:2em;font-weight:bold;color:#eee}.donut-center .label{font-size:.8em;color:#888}
-.charts{display:flex;gap:30px;flex-wrap:wrap;justify-content:center;margin-bottom:40px}
-.chart-box{background:rgba(255,255,255,.03);border-radius:15px;padding:20px;flex:1;min-width:400px;max-width:600px}
-.chart-box h3{text-align:center;margin-bottom:15px;color:#888}
-.adv-toggle{text-align:center;margin-bottom:20px}
-.adv-toggle button{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;padding:12px 30px;border-radius:10px;cursor:pointer;font-size:1em;transition:all .2s}
+.donut-center .num{font-size:2em;font-weight:bold;color:#eee}.donut-center .label{font-size:.8em;color:var(--dim)}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:var(--s4);margin-bottom:var(--s6)}
+.chart-box{background:rgba(255,255,255,.03);border-radius:15px;padding:var(--s4);min-width:0}
+.chart-box h3{text-align:center;margin-bottom:var(--s3);color:var(--dim);font-size:.85em;text-transform:uppercase;letter-spacing:1.2px}
+.adv-toggle{text-align:center;margin-bottom:var(--s4)}
+.adv-toggle button{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;padding:11px 26px;border-radius:10px;cursor:pointer;font-size:.9em;transition:background .2s,color .2s}
 .adv-toggle button:hover{background:rgba(255,255,255,.15);color:#fff}
-.adv-section{max-height:0;overflow:hidden;transition:max-height .5s ease-out;margin-bottom:40px}
+.adv-section{max-height:0;overflow:hidden;transition:max-height .5s ease-out;margin-bottom:var(--s6)}
 .adv-section.open{max-height:8000px;transition:max-height .8s ease-in}
-.adv-grid{display:flex;flex-wrap:wrap;gap:20px;justify-content:center}
-.stat-card{background:rgba(255,255,255,.03);border-radius:15px;padding:20px;width:280px;border:1px solid rgba(255,255,255,.08)}
-.stat-card h4{text-align:center;font-size:1.1em;margin-bottom:12px}
-.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.adv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:var(--s4)}
+.stat-card{background:rgba(255,255,255,.03);border-radius:15px;padding:var(--s4);border:1px solid rgba(255,255,255,.08)}
+.stat-card h4{text-align:center;font-size:1.05em;margin-bottom:var(--s3)}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2)}
 .sg{display:flex;flex-direction:column;padding:6px 8px;background:rgba(255,255,255,.03);border-radius:8px}
-.sl{font-size:.7em;color:#888;text-transform:uppercase}.sv{font-size:1.1em;font-weight:bold}
-.footer{text-align:center;color:#555;padding:20px;font-size:.8em}
-@media(max-width:768px){.highlights{flex-direction:column;align-items:center}.charts{flex-direction:column;align-items:center}.chart-box{min-width:100%}.donuts{flex-direction:column;align-items:center}.donut-box{width:100%;max-width:350px}table{font-size:.85em}.stat-card{width:100%}}
+.sl{font-size:.7em;color:var(--dim);text-transform:uppercase}.sv{font-size:1.1em;font-weight:bold}
+.footer{text-align:center;color:#555;padding:var(--s4);font-size:.8em}
+@media(max-width:760px){
+body{padding:var(--s4) var(--s3)}
+.masthead{gap:var(--s3)}
+.brand{margin-right:0}
+.controls{flex-direction:column;align-items:stretch}
+.mode-bar{justify-content:center}
+.mode-btn{flex:1;text-align:center;padding:7px 8px}
+.nav-bar{justify-content:center}
+.card.trash{flex-direction:column;align-items:center;gap:var(--s1);padding:var(--s3)}
+.highlights{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:var(--s2)}
+table{font-size:.82em}
+th,td{padding:9px 8px}
+}
 </style>"""
 
     js_template = """<script>
@@ -1301,26 +1321,31 @@ new Chart(document.getElementById('trendChart'),{type:'line',data:{labels:__TREN
     html = '<!DOCTYPE html><html><head><title>Zip Patchlings</title><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="300"><link rel="icon" type="image/x-icon" href="/favicon.ico"><script src="https://cdn.jsdelivr.net/npm/chart.js"></script>'
     html += css
     html += '</head><body><div class="container">'
-    html += '<div class="brand"><img src="/logo.png" alt="Zip Patchlings" class="logo"></div>'
-    html += '<h1>Zip Patchlings</h1>'
-    html += '<p class="subtitle">Consistency beats talent. Miss a day? Pay the price.</p>'
-    html += mode_html
-    html += ('<div class="nav-bar">'
+    html += ('<header class="masthead">'
+             '<div class="brand"><img src="/logo.png" alt="Zip Patchlings" class="logo">'
+             '<div><h1>Zip Patchlings</h1>'
+             '<p class="subtitle">Consistency beats talent. Miss a day? Pay the price.</p>'
+             '</div></div>'
+             '<span class="view-meta">' + mode.upper() + ' &middot; ' + num_days + ' day' +
+             ('' if num_days == "1" else 's') + '</span>'
+             '</header>')
+    html += ('<div class="controls">' + mode_html +
+             '<nav class="nav-bar">'
              '<a class="nav-btn" href="/accommodation">Request Time Away</a>'
              '<a class="nav-btn" href="/backfill">Submit Score Proof</a>'
              '<a class="nav-btn ghost" href="/accommodations">Leave Board</a>'
-             '</div>')
+             '</nav></div>')
     html += '<div class="highlights">'
     html += '<div class="card winner"><h3>Latest Winner</h3><div class="value">' + dw + '</div></div>'
     html += '<div class="card loser"><h3>Rough Day</h3><div class="value">' + dl + '</div></div>'
     html += weekly_html
     html += away_html
-    html += '<div class="card trash"><h3>Commentary</h3><div class="value">' + trash_line + '</div></div>'
     html += '</div>'
-    html += '<table id="mainTable"><thead><tr>'
+    html += '<div class="card trash"><h3>Commentary</h3><div class="value">' + trash_line + '</div></div>'
+    html += '<div class="table-wrap"><table id="mainTable"><thead><tr>'
     for col, dtype, label in [("rank","num","Rank"),("player","str","Player"),("total","num","Total"),("avg_zip","num","Avg Zip"),("avg_patch","num","Avg Patch"),("total_wins","num","Wins"),("missed","num","Missed"),("away","num","Away"),("days","num","Days"),("move","str","Move")]:
         html += '<th data-col="' + col + '" data-type="' + dtype + '">' + label + '<span class="sort-arrow"></span></th>'
-    html += '</tr></thead><tbody id="tableBody"></tbody></table>'
+    html += '</tr></thead><tbody id="tableBody"></tbody></table></div>'
     html += '<div class="donuts">'
     html += '<div class="donut-box"><h3>Zip Wins</h3><canvas id="zipDonut"></canvas><div class="donut-center"><div class="num">' + str(zt) + '</div><div class="label">wins</div></div></div>'
     html += '<div class="donut-box"><h3>Patches Wins</h3><canvas id="patchDonut"></canvas><div class="donut-center"><div class="num">' + str(pt_val) + '</div><div class="label">wins</div></div></div>'
@@ -1332,7 +1357,7 @@ new Chart(document.getElementById('trendChart'),{type:'line',data:{labels:__TREN
     html += '<div class="chart-box"><h3>Total Scores (lower = better)</h3><canvas id="barChart"></canvas></div>'
     html += '<div class="chart-box"><h3>Daily Trend</h3><canvas id="trendChart"></canvas></div>'
     html += '</div>'
-    html += '<div class="footer">Auto-refreshes every 5 min | ' + mode.upper() + ' view | Data from ' + num_days + ' day(s)</div>'
+    html += '<div class="footer">Auto-refreshes every 5 min</div>'
     html += '</div>'
     html += js
     html += '</body></html>'
@@ -1947,6 +1972,7 @@ def commissioner_queue(request: Request, error: str = "", done: str = ""):
             '<a class="nav-btn" href="/backfill">Submit Score Proof</a>'
             '<a class="nav-btn ghost" href="/accommodation">Request Time Away</a>'
             '<a class="nav-btn ghost" href="/accommodations">Leave Board</a>'
+            '<a class="nav-btn ghost" href="' + esc(_backstage_href()) + '">Backstage</a>'
             '</div>'
             '<div class="panel">' + acc_html + '</div>'
             '<div class="panel">' + proof_html + '</div>'
@@ -1954,6 +1980,15 @@ def commissioner_queue(request: Request, error: str = "", done: str = ""):
             '<div class="footer"><form method="post" action="/commissioner/logout">'
             '<button class="mini" type="submit">Lock this page</button></form></div>')
     return form_page("Commissioner", body, ribbon="Games Commissioner", wide=True)
+
+
+def _backstage_href():
+    """Link to the hidden score-editing page. It authenticates by query string, so
+    the token has to ride along or the link 404s. Only rendered on the commissioner
+    page, which is already behind its own passcode."""
+    if ZS_ADMIN_TOKEN:
+        return ZS_ADMIN_PATH + "?token=" + quote(ZS_ADMIN_TOKEN)
+    return ZS_ADMIN_PATH
 
 
 @app.post("/commissioner/accommodation/{acc_id}")
