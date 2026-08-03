@@ -32,4 +32,8 @@ services:
     #   ZS_RETENTION_DAYS: "30"                   # prune buffered messages older than this
     #   ZS_FINALIZE_HOUR: "2"                     # daily finalize run hour (local time)
     #   ZS_FINALIZE_MINUTE: "10"                  # daily finalize run minute (local time)
+    #   --- Accommodation requests / screenshot backfill ---
+    #   ZS_COMMISSIONER_TOKEN: ""                 # passcode for /commissioner; empty = open
+    #   ZS_PROOF_DIR: "/home/proofs"              # backfill screenshots, persists with ./data
+    #   ZS_MAX_PROOF_BYTES: "8388608"             # max screenshot upload size (8 MB)
     restart: unless-stopped

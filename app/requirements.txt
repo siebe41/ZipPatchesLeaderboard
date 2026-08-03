@@ -3,3 +3,4 @@ uvicorn
 pydantic
 apscheduler
 tzdata
+python-multipart

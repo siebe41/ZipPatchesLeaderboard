@@ -22,7 +22,8 @@ automatically.
 ## Endpoints
 
 Existing leaderboard endpoints are unchanged: `/ingest`, `/leaderboard`,
-`/history`, `/reset`, `/adjust`, `/`.
+`/history`, `/reset`, `/adjust`, `/`, `/player`. The accommodation and screenshot
+backfill pages are described further down.
 
 ### `POST /collect`
 
@@ -50,16 +51,73 @@ A line is kept only if its cleaned body looks score-ish (contains `//` **or**
 starts with a digit). Messages whose `messageType` is set and not `"message"`
 (e.g. `systemEventMessage`) are ignored.
 
+## Accommodation requests (PTO without leaving Teams installed)
+
+Anyone heading out shouldn't have to keep Teams on their phone just to dodge the
+worst-score+1 penalty. They file an accommodation request on the site instead; once
+the Games Commissioner approves it, every covered day is recorded as **excused**
+rather than penalized.
+
+An excused day is stored in `history.json` as
+`{"zip": 0, "patch": 0, "total": 0, "penalty": false, "excused": true}` and is
+deliberately invisible to scoring: it earns no penalty, adds nothing to the player's
+totals, doesn't count as a played day or a missed day, doesn't break a streak, and is
+excluded from every daily rank, winner, and weekly total. (Without that exclusion an
+away player's total of 0 would silently win the day.)
+
+| Page | Who | Purpose |
+| ---- | --- | ------- |
+| `GET /accommodation` | player | The request form: name, date range, type, optional reason, promise, signature |
+| `GET /accommodations` | anyone | Leave board showing every request and its status |
+| `GET /backfill` | player | Submit a score screenshot for a past day |
+| `GET /commissioner` | commissioner | Approve/deny requests, review and apply screenshots |
+| `GET /api/accommodations?status=` | anyone | JSON list of requests |
+
+Approval is **retroactive**. The nightly finalizer usually stamps a penalty before
+anyone gets around to approving, so approving reaches back over the requested range,
+converts each recorded penalty day to excused, and reverses the matching
+`penalty_days`, `days`, score totals, and daily-win counters.
+
+### Screenshot backfill
+
+The promise on the form is that the player keeps playing and sends screenshots. `/backfill`
+is where those land: player, day played, zip, patches, and a required image. Uploads are
+validated by magic bytes (PNG, JPEG, GIF, WebP), capped at `ZS_MAX_PROOF_BYTES`, stored
+under `ZS_PROOF_DIR` with a generated UUID filename, and restricted to past days so a
+backfill can never pre-empt today's Teams collection.
+
+The commissioner reviews each screenshot next to the claimed numbers, can correct them,
+then applies it. Applying replaces the excused (or penalty, or existing) entry with the
+real score and reconciles `leaderboard.json` — totals, played days, penalty days, and the
+affected day's win counters. If the day was never scored at all, it is finalized from the
+message buffer first so the other players still get their normal treatment. The player
+page marks these days `BACKFILLED`.
+
+### Commissioner access
+
+`/commissioner` asks for `ZS_COMMISSIONER_TOKEN` once and remembers it in an HttpOnly
+cookie. Screenshot images are only served to an authenticated commissioner. If
+`ZS_COMMISSIONER_TOKEN` is unset the page stays open (so a missing variable can't lock
+everyone out) and shows a warning banner.
+
 ## Environment variables
 
-| Variable             | Default                      | Purpose                                            |
-| -------------------- | ---------------------------- | -------------------------------------------------- |
-| `ZS_TIMEZONE`        | `America/Chicago`            | Local TZ for "yesterday" and the daily scheduler   |
-| `ZS_BUFFER_DB`       | `/home/zipscores_buffer.db`  | SQLite buffer path (under `./data:/home`, persists) |
-| `ZS_COLLECTOR_TOKEN` | `` (empty)                   | If set, `/collect` requires `X-Token` to match     |
-| `ZS_RETENTION_DAYS`  | `30`                         | Prune buffered messages older than this many days  |
-| `ZS_FINALIZE_HOUR`   | `2`                          | Daily finalize run hour (local time)               |
-| `ZS_FINALIZE_MINUTE` | `10`                         | Daily finalize run minute (local time)             |
+| Variable              | Default                      | Purpose                                            |
+| --------------------- | ---------------------------- | -------------------------------------------------- |
+| `ZS_TIMEZONE`         | `America/Chicago`            | Local TZ for "yesterday" and the daily scheduler   |
+| `ZS_BUFFER_DB`        | `/home/zipscores_buffer.db`  | SQLite buffer path (under `./data:/home`, persists) |
+| `ZS_COLLECTOR_TOKEN`  | `` (empty)                   | If set, `/collect` requires `X-Token` to match     |
+| `ZS_RETENTION_DAYS`   | `30`                         | Prune buffered messages older than this many days  |
+| `ZS_FINALIZE_HOUR`    | `2`                          | Daily finalize run hour (local time)               |
+| `ZS_FINALIZE_MINUTE`  | `10`                         | Daily finalize run minute (local time)             |
+| `ZS_COMMISSIONER_TOKEN` | `` (empty)                 | Passcode for `/commissioner`; empty leaves it open |
+| `ZS_PROOF_DIR`        | `/home/proofs`               | Where backfill screenshots are stored (persists)   |
+| `ZS_MAX_PROOF_BYTES`  | `8388608`                    | Max screenshot upload size (8 MB)                  |
+| `ZS_STATE_FILE`       | `/home/leaderboard.json`     | Cumulative per-player state                        |
+| `ZS_HISTORY_FILE`     | `/home/history.json`         | Per-day scores                                     |
+
+The accommodation and proof tables live in the same SQLite file as the message buffer,
+so they persist on the existing `./data:/home` volume with no extra setup.
 
 `STATE_FILE` (`/home/leaderboard.json`) and `HISTORY_FILE` (`/home/history.json`)
 are unchanged. The buffer DB lives on the same `./data:/home` volume.
@@ -95,6 +153,7 @@ app/                    # mounted to /app in the container
   zippatchlings.ico     # served at /favicon.ico
   zippatchlings.png     # served at /logo.png
 data/                   # mounted to /home  (leaderboard.json, history.json, buffer DB)
+  proofs/               # backfill screenshots (created on first upload)
 ```
 
 ### Deploy without SSH (Synology Docker / Container Manager GUI)
