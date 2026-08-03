@@ -380,7 +380,13 @@ _IMAGE_SIGNATURES = [
     (b"\xff\xd8\xff", "image/jpeg", ".jpg"),
     (b"GIF87a", "image/gif", ".gif"),
     (b"GIF89a", "image/gif", ".gif"),
+    (b"BM", "image/bmp", ".bmp"),
 ]
+
+# ISO base-media brands, read at offset 4. AVIF renders in every current browser;
+# the HEIF family does not, so it earns its own instructions instead of a generic no.
+_ISO_OK_BRANDS = {b"avif": ("image/avif", ".avif"), b"avis": ("image/avif", ".avif")}
+_HEIF_BRANDS = {b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1", b"heim", b"heis"}
 
 _zs_conn.execute(
     """
@@ -604,23 +610,55 @@ def apply_backfill(player, date_str, zip_score, patch_score):
 
 
 def sniff_image(data):
+    """Identify a browser-renderable image from its bytes.
+
+    Returns (mime, ext, None) when the image can be shown to the commissioner, or
+    (None, None, reason) with something the player can act on. A stored image the
+    reviewer cannot see is worse than a clear rejection."""
     for signature, mime, ext in _IMAGE_SIGNATURES:
         if data.startswith(signature):
-            return mime, ext
+            return mime, ext, None
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp", ".webp"
-    return None, None
+        return "image/webp", ".webp", None
+    if len(data) >= 12 and data[4:8] == b"ftyp":
+        brand = data[8:12]
+        if brand in _ISO_OK_BRANDS:
+            mime, ext = _ISO_OK_BRANDS[brand]
+            return mime, ext, None
+        if brand in _HEIF_BRANDS:
+            return None, None, (
+                "That is an Apple HEIC image, which browsers cannot display. Set "
+                "Settings > Camera > Formats to Most Compatible, or open the shot in "
+                "Photos, tap Share, and choose a JPEG-friendly option.")
+    if data[:4] in (b"II*\x00", b"MM\x00*"):
+        return None, None, ("That is a TIFF, which browsers cannot display. Export it "
+                            "as PNG or JPEG and try again.")
+    if data[:5] == b"%PDF-":
+        return None, None, ("That is a PDF. Send the screenshot image itself, as PNG "
+                            "or JPEG.")
+    return None, None, ("That file is not an image we can display. PNG, JPEG, GIF, "
+                        "WebP, AVIF or BMP please.")
 
 
 def store_proof_image(data):
-    os.makedirs(ZS_PROOF_DIR, exist_ok=True)
-    mime, ext = sniff_image(data)
+    """Persist an accepted screenshot. Returns (name, mime, None) or (None, None, reason)."""
+    mime, ext, reason = sniff_image(data)
     if not mime:
-        return None, None
+        return None, None, reason
+    os.makedirs(ZS_PROOF_DIR, exist_ok=True)
     name = uuid.uuid4().hex + ext
     with open(os.path.join(ZS_PROOF_DIR, name), "wb") as fh:
         fh.write(data)
-    return name, mime
+    return name, mime, None
+
+
+def parse_score_field(value):
+    """Whole number or nothing. A blank field must never quietly become a score of 0."""
+    text = str(value or "").strip()
+    if not re.fullmatch(r"\d{1,7}", text):
+        return None
+    number = int(text)
+    return number if number <= 1000000 else None
 
 
 def is_commissioner(request):
@@ -1767,15 +1805,20 @@ def accommodation_board():
 
 
 @app.get("/backfill", response_class=HTMLResponse)
-def backfill_form(player: str = "", error: str = "", submitted: int = 0):
+def backfill_form(player: str = "", play_date: str = "", zip_score: str = "",
+                  patch_score: str = "", note: str = "", error: str = "",
+                  submitted: int = 0):
     banner = ""
     if submitted:
         banner = _banner("ok", "Screenshot received. The Games Commissioner will verify and "
                                "backfill your score.")
     elif error:
-        banner = _banner("err", esc(error))
+        banner = _banner("err", esc(error) +
+                         '<br><span class="hint">Your entries are still here, but browsers '
+                         'clear file pickers, so choose the screenshot again.</span>')
 
     yesterday = (today_local() - timedelta(days=1)).strftime("%Y-%m-%d")
+    day_value = play_date if valid_date(play_date) else yesterday
     body = (
         '<a class="back" href="/">&larr; Back to leaderboard</a>' + banner +
         '<div class="panel"><form method="post" action="/backfill" enctype="multipart/form-data">'
@@ -1786,59 +1829,73 @@ def backfill_form(player: str = "", error: str = "", submitted: int = 0):
         + esc(player) + '" placeholder="Exactly as it appears on the leaderboard">'
         + player_datalist() + '</div>'
         '<div class="field"><label>Day played</label>'
-        '<input type="date" name="play_date" required max="' + yesterday + '" value="' + yesterday + '">'
+        '<input type="date" name="play_date" required max="' + yesterday + '" value="' + esc(day_value) + '">'
         '<span class="hint">Past days only. Today is still being collected from Teams.</span></div>'
         '<div class="row">'
         '<div class="field"><label>Zip time</label>'
-        '<input type="number" name="zip_score" required min="0" max="1000000" placeholder="e.g. 42"></div>'
+        '<input type="number" name="zip_score" required min="0" max="1000000" value="'
+        + esc(zip_score) + '" placeholder="e.g. 42"></div>'
         '<div class="field"><label>Patches</label>'
-        '<input type="number" name="patch_score" required min="0" max="1000000" placeholder="e.g. 7"></div>'
+        '<input type="number" name="patch_score" required min="0" max="1000000" value="'
+        + esc(patch_score) + '" placeholder="e.g. 7"></div>'
         '</div>'
         '<div class="field"><label>Screenshot</label>'
         '<input type="file" name="screenshot" accept="image/*" required>'
-        '<span class="hint">PNG, JPEG, GIF or WebP, up to '
+        '<span class="hint">PNG, JPEG, GIF, WebP, AVIF or BMP, up to '
         + str(ZS_MAX_PROOF_BYTES // (1024 * 1024)) + ' MB. Show the game and the time.</span></div>'
         '<div class="field"><label>Note (optional)</label>'
-        '<textarea name="note" maxlength="300" placeholder="Anything the commissioner should know"></textarea></div>'
+        '<textarea name="note" maxlength="300" placeholder="Anything the commissioner should know">'
+        + esc(note) + '</textarea></div>'
         '<button class="submit" type="submit">Submit proof</button>'
         '</form></div>'
     )
     return form_page("Score proof", body, ribbon="Score Backfill Request")
 
 
-def _backfill_error(message, player):
-    return RedirectResponse(
-        url="/backfill?error=" + quote(message) + "&player=" + quote(player),
-        status_code=303,
-    )
+def _backfill_error(message, player, play_date="", zip_score="", patch_score="", note=""):
+    """Bounce back to the form with the reason and everything the browser will let us keep."""
+    params = {"error": message, "player": player, "play_date": play_date,
+              "zip_score": zip_score, "patch_score": patch_score, "note": note}
+    query = "&".join(k + "=" + quote(str(v)) for k, v in params.items() if v)
+    return RedirectResponse(url="/backfill?" + query, status_code=303)
 
 
 @app.post("/backfill")
 async def backfill_submit(player: str = Form(""), play_date: str = Form(""),
-                          zip_score: int = Form(0), patch_score: int = Form(0),
-                          note: str = Form(""), screenshot: UploadFile = File(...)):
+                          zip_score: str = Form(""), patch_score: str = Form(""),
+                          note: str = Form(""),
+                          screenshot: UploadFile | None = File(None)):
+    # Every field arrives as text and is parsed here on purpose. Typing them as int
+    # or as a required file makes FastAPI answer a bad form with a raw 422 JSON page,
+    # which reads as "it just didn't work" to the player.
     player = canonical_player(player)
     day = valid_date(play_date)
+    zip_value = parse_score_field(zip_score)
+    patch_value = parse_score_field(patch_score)
+    kept = {"play_date": play_date, "zip_score": zip_score,
+            "patch_score": patch_score, "note": note}
 
     if not player:
-        return _backfill_error("Player name is required.", player)
+        return _backfill_error("Player name is required.", player, **kept)
     if not day:
-        return _backfill_error("Enter a valid day played.", player)
+        return _backfill_error("Enter a valid day played.", player, **kept)
     if day >= today_local():
-        return _backfill_error("Backfill is for past days only; today is still being collected.", player)
-    if zip_score < 0 or patch_score < 0 or zip_score > 1000000 or patch_score > 1000000:
-        return _backfill_error("Scores must be between 0 and 1,000,000.", player)
+        return _backfill_error("Backfill is for past days only; today is still being collected.", player, **kept)
+    if zip_value is None or patch_value is None:
+        return _backfill_error("Enter both scores as whole numbers between 0 and 1,000,000.", player, **kept)
+    if screenshot is None or not (screenshot.filename or "").strip():
+        return _backfill_error("Choose a screenshot. That was the promise.", player, **kept)
 
     data = await screenshot.read()
     if not data:
-        return _backfill_error("A screenshot is required. That was the promise.", player)
+        return _backfill_error("That file came through empty. Try picking it again.", player, **kept)
     if len(data) > ZS_MAX_PROOF_BYTES:
         return _backfill_error("Screenshot is too large (max "
-                               + str(ZS_MAX_PROOF_BYTES // (1024 * 1024)) + " MB).", player)
+                               + str(ZS_MAX_PROOF_BYTES // (1024 * 1024)) + " MB).", player, **kept)
 
-    image_name, image_mime = store_proof_image(data)
+    image_name, image_mime, reason = store_proof_image(data)
     if not image_name:
-        return _backfill_error("That file is not a PNG, JPEG, GIF or WebP image.", player)
+        return _backfill_error(reason, player, **kept)
 
     _acc_write(
         """
@@ -1847,7 +1904,7 @@ async def backfill_submit(player: str = Form(""), play_date: str = Form(""),
              status, submitted_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
         """,
-        (player, name_key(player), day.strftime("%Y-%m-%d"), zip_score, patch_score,
+        (player, name_key(player), day.strftime("%Y-%m-%d"), zip_value, patch_value,
          note.strip()[:300], image_name, image_mime, datetime.now(timezone.utc).isoformat()),
     )
     return RedirectResponse(url="/backfill?submitted=1", status_code=303)
@@ -2019,7 +2076,7 @@ def commissioner_decide_accommodation(acc_id: int, request: Request,
 
 @app.post("/commissioner/proof/{proof_id}")
 def commissioner_decide_proof(proof_id: int, request: Request, action: str = Form(""),
-                              zip_score: int = Form(0), patch_score: int = Form(0),
+                              zip_score: str = Form(""), patch_score: str = Form(""),
                               note: str = Form("")):
     if not is_commissioner(request):
         return RedirectResponse(url="/commissioner", status_code=303)
@@ -2041,21 +2098,24 @@ def commissioner_decide_proof(proof_id: int, request: Request, action: str = For
         return RedirectResponse(url="/commissioner?done=" + quote(row["player"] + ": proof rejected"),
                                 status_code=303)
 
-    if zip_score < 0 or patch_score < 0 or zip_score > 1000000 or patch_score > 1000000:
-        return RedirectResponse(url="/commissioner?error=" + quote("Scores must be between 0 and 1,000,000."),
-                                status_code=303)
+    zip_value = parse_score_field(zip_score)
+    patch_value = parse_score_field(patch_score)
+    if zip_value is None or patch_value is None:
+        return RedirectResponse(
+            url="/commissioner?error=" + quote("Enter both scores as whole numbers between 0 and 1,000,000."),
+            status_code=303)
 
-    result = apply_backfill(row["player"], row["play_date"], zip_score, patch_score)
+    result = apply_backfill(row["player"], row["play_date"], zip_value, patch_value)
     _acc_write(
         """
         UPDATE proofs SET status = 'applied', zip = ?, patch = ?, decided_at = ?,
                           decision_note = ? WHERE id = ?
         """,
-        (zip_score, patch_score, datetime.now(timezone.utc).isoformat(),
+        (zip_value, patch_value, datetime.now(timezone.utc).isoformat(),
          note.strip()[:200] or None, proof_id),
     )
-    message = (result["player"] + " " + result["date"] + ": " + str(zip_score) + " // "
-               + str(patch_score) + " applied (replaced " + result["replaced"] + ")")
+    message = (result["player"] + " " + result["date"] + ": " + str(zip_value) + " // "
+               + str(patch_value) + " applied (replaced " + result["replaced"] + ")")
     return RedirectResponse(url="/commissioner?done=" + quote(message), status_code=303)
 
 
