@@ -1309,7 +1309,6 @@ new Chart(document.getElementById('trendChart'),{type:'line',data:{labels:__TREN
              '<a class="nav-btn" href="/accommodation">Request Time Away</a>'
              '<a class="nav-btn" href="/backfill">Submit Score Proof</a>'
              '<a class="nav-btn ghost" href="/accommodations">Leave Board</a>'
-             '<a class="nav-btn ghost" href="/commissioner">Commissioner</a>'
              '</div>')
     html += '<div class="highlights">'
     html += '<div class="card winner"><h3>Latest Winner</h3><div class="value">' + dw + '</div></div>'
@@ -1581,6 +1580,11 @@ table.board{width:100%;border-collapse:collapse;background:rgba(255,255,255,.03)
 .review .meta{flex:1;min-width:250px}
 .review h4{font-size:1.05em;margin-bottom:6px;color:#8fd0ff}
 .section-title{font-size:.8em;text-transform:uppercase;letter-spacing:2px;color:#8fd0ff;margin-bottom:14px;font-weight:bold}
+.nav-bar{display:flex;justify-content:center;gap:10px;margin-bottom:22px;flex-wrap:wrap}
+.nav-btn{background:rgba(54,162,235,.12);color:#8fd0ff;padding:9px 18px;border-radius:10px;text-decoration:none;font-size:.85em;border:1px solid rgba(54,162,235,.35);transition:all .2s}
+.nav-btn:hover{background:rgba(54,162,235,.25);color:#fff}
+.nav-btn.ghost{background:rgba(255,255,255,.04);color:#888;border-color:rgba(255,255,255,.12)}
+.nav-btn.ghost:hover{color:#eee}
 .empty{color:#7a8494;font-style:italic;font-size:.92em}
 .inline{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
 .inline input[type=number]{width:90px}
@@ -1939,6 +1943,11 @@ def commissioner_queue(request: Request, error: str = "", done: str = ""):
         recent_html += '<p class="empty">Nothing decided yet.</p>'
 
     body = ('<a class="back" href="/">&larr; Back to leaderboard</a>' + banner +
+            '<div class="nav-bar">'
+            '<a class="nav-btn" href="/backfill">Submit Score Proof</a>'
+            '<a class="nav-btn ghost" href="/accommodation">Request Time Away</a>'
+            '<a class="nav-btn ghost" href="/accommodations">Leave Board</a>'
+            '</div>'
             '<div class="panel">' + acc_html + '</div>'
             '<div class="panel">' + proof_html + '</div>'
             '<div class="panel">' + recent_html + '</div>'
