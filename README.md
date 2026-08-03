@@ -76,15 +76,35 @@ away player's total of 0 would silently win the day.)
 Approval is **retroactive**. The nightly finalizer usually stamps a penalty before
 anyone gets around to approving, so approving reaches back over the requested range,
 converts each recorded penalty day to excused, and reverses the matching
-`penalty_days`, `days`, score totals, and daily-win counters.
+`penalty_days`, `days`, score totals, and daily-win counters. Reversing a decision
+works the same way in the other direction: denying a request that was already
+approved puts those days back to the day's worst real score +1.
+
+Requests are rejected when the name is not on the leaderboard, with a suggestion of
+the closest match. Case and extra spaces are forgiven and mapped to the board's
+spelling, but a genuine typo is refused rather than filed. An accommodation approved
+under a name nobody has would excuse nobody, and a backfill under one would invent a
+new player; both fail silently, so they are stopped at the form instead.
+
+`/commissioner` is not linked from the leaderboard, so pending work is surfaced two
+other ways instead: a count in the dashboard footer and a banner on the leave board.
+Neither links to the page.
 
 ### Screenshot backfill
 
 The promise on the form is that the player keeps playing and sends screenshots. `/backfill`
-is where those land: player, day played, zip, patches, and a required image. Uploads are
-validated by magic bytes (PNG, JPEG, GIF, WebP), capped at `ZS_MAX_PROOF_BYTES`, stored
-under `ZS_PROOF_DIR` with a generated UUID filename, and restricted to past days so a
-backfill can never pre-empt today's Teams collection.
+is where those land: player, day played, zip, patches, and a required image. Every field
+arrives as text and is parsed in the handler, so a bad entry returns to the form with an
+explanation instead of FastAPI's raw 422 page, and the entries survive the round trip.
+Uploads are validated by magic bytes rather than the filename (PNG, JPEG, GIF, WebP, AVIF,
+BMP), capped at `ZS_MAX_PROOF_BYTES`, stored under `ZS_PROOF_DIR` with a generated UUID
+filename, and restricted to past days so a backfill can never pre-empt today's Teams
+collection. HEIC and TIFF are refused by name with instructions, because browsers cannot
+display them and a screenshot the commissioner cannot see is worse than a clear rejection.
+
+Once a proof has been decided for longer than `ZS_RETENTION_DAYS`, its image file is
+deleted and the row is kept as the audit trail. Without that, 8 MB uploads accumulate on
+the volume forever.
 
 The commissioner reviews each screenshot next to the claimed numbers, can correct them,
 then applies it. Applying replaces the excused (or penalty, or existing) entry with the
@@ -107,7 +127,7 @@ everyone out) and shows a warning banner.
 | `ZS_TIMEZONE`         | `America/Chicago`            | Local TZ for "yesterday" and the daily scheduler   |
 | `ZS_BUFFER_DB`        | `/home/zipscores_buffer.db`  | SQLite buffer path (under `./data:/home`, persists) |
 | `ZS_COLLECTOR_TOKEN`  | `` (empty)                   | If set, `/collect` requires `X-Token` to match     |
-| `ZS_RETENTION_DAYS`   | `30`                         | Prune buffered messages older than this many days  |
+| `ZS_RETENTION_DAYS`   | `30`                         | Prune buffered messages and decided proof images older than this |
 | `ZS_FINALIZE_HOUR`    | `2`                          | Daily finalize run hour (local time)               |
 | `ZS_FINALIZE_MINUTE`  | `10`                         | Daily finalize run minute (local time)             |
 | `ZS_COMMISSIONER_TOKEN` | `` (empty)                 | Passcode for `/commissioner`; empty leaves it open |
