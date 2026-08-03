@@ -2054,13 +2054,17 @@ def recompute_state_from_history():
 
     Mirrors process()'s accounting so an edited day stays consistent: per day,
     wins go to the best non-penalty scorers, and penalty cells count toward
-    penalty_days.
+    penalty_days. Excused cells (approved time away) are skipped entirely, the
+    same way process() skips them: they are stored with a total of 0, so
+    counting one would hand the away player every win for that day.
     """
     history = load_json(HISTORY_FILE)
     state = {}
     for day in sorted(history.keys()):
         cells = {}
         for p, v in history[day].items():
+            if is_excused_entry(v):
+                continue
             if isinstance(v, dict):
                 z = int(v.get("zip", 0))
                 pa = int(v.get("patch", 0))
