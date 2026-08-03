@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, Form, File, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import difflib
 import html
 import json
 import os
@@ -567,6 +568,53 @@ def excuse_recorded_days(player, start_date, end_date, kind):
     return changed
 
 
+def unexcuse_recorded_days(player, start_date, end_date):
+    """Undo excused days when an approval is reversed.
+
+    The player is back to having missed those days, so each one returns to that day's
+    worst real score +1, exactly as process() would have scored it. Without this, a
+    denial after an approval flips the record but leaves the days excused forever."""
+    state = load_json(STATE_FILE)
+    history = load_json(HISTORY_FILE)
+    player = canonical_player(player, state)
+    changed = []
+
+    start = valid_date(start_date)
+    end = valid_date(end_date)
+    if not start or not end:
+        return changed
+
+    for d in date_range(start, end):
+        day = history.get(d)
+        if not day or player not in day:
+            continue
+        entry = get_player_day(history, d, player)
+        if not entry or not entry.get("excused"):
+            continue
+        posters = [v for p, v in day.items()
+                   if isinstance(v, dict) and not v.get("penalty") and not v.get("excused")]
+        if not posters:
+            continue  # no real scores that day, so no baseline to penalize against
+
+        before = _day_winners(day)
+        penalty_zip = max(v.get("zip", 0) for v in posters) + 1
+        penalty_patch = max(v.get("patch", 0) for v in posters) + 1
+        day[player] = {"zip": penalty_zip, "patch": penalty_patch,
+                       "total": penalty_zip + penalty_patch, "penalty": True}
+        st = _ensure_state_player(state, player)
+        st["zip_total"] += penalty_zip
+        st["patch_total"] += penalty_patch
+        st["days"] += 1
+        st["penalty_days"] += 1
+        _apply_win_delta(state, before, _day_winners(day))
+        changed.append(d)
+
+    if changed:
+        save_json(STATE_FILE, state)
+        save_json(HISTORY_FILE, history)
+    return changed
+
+
 def apply_backfill(player, date_str, zip_score, patch_score):
     """Write a verified screenshot score into history and reconcile the totals."""
     history = load_json(HISTORY_FILE)
@@ -673,6 +721,62 @@ def known_players():
     return sorted(load_json(STATE_FILE).keys())
 
 
+def unknown_player_message(player):
+    """Reject a name the leaderboard does not know, and say which one was meant.
+
+    A typo is not harmless here. An accommodation filed under "Dorie" instead of
+    "Dorie Wallace" gets approved and excuses nobody, and a backfill under that name
+    invents a whole new player. Both fail quietly, which is the worst way to fail."""
+    known = known_players()
+    if not known or player in known:
+        return None
+    lowered = player.lower()
+    # Typing only a first name is the common miss, and difflib scores that poorly
+    # against a full name, so try containment before falling back to fuzzy matching.
+    partial = [k for k in known if lowered and lowered in k.lower()]
+    match = partial[0] if len(partial) == 1 else None
+    if not match:
+        close = difflib.get_close_matches(player, known, n=1, cutoff=0.5)
+        match = close[0] if close else None
+    hint = ' Did you mean "' + match + '"?' if match else ''
+    return ('No leaderboard player named "' + player + '".' + hint
+            + " Use your name exactly as it appears on the board.")
+
+
+def acc_pending_count():
+    """Requests plus screenshots waiting on the commissioner."""
+    requests = _acc_rows("SELECT COUNT(*) AS n FROM accommodations WHERE status = 'pending'")
+    proofs = _acc_rows("SELECT COUNT(*) AS n FROM proofs WHERE status = 'pending'")
+    return requests[0]["n"] + proofs[0]["n"]
+
+
+def _prune_proof_images():
+    """Drop screenshot files for long-decided proofs.
+
+    The row stays as the audit trail; only the image goes. Uploads are capped at
+    ZS_MAX_PROOF_BYTES each but were otherwise unbounded, which fills a NAS."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=ZS_RETENTION_DAYS)).isoformat()
+    rows = _acc_rows(
+        """
+        SELECT id, image_name FROM proofs
+        WHERE status != 'pending' AND image_name IS NOT NULL
+              AND decided_at IS NOT NULL AND decided_at < ?
+        """,
+        (cutoff,),
+    )
+    removed = 0
+    for row in rows:
+        path = os.path.join(ZS_PROOF_DIR, os.path.basename(row["image_name"]))
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+            _acc_write("UPDATE proofs SET image_name = NULL WHERE id = ?", (row["id"],))
+            removed += 1
+        except OSError as exc:  # pragma: no cover - disk-level failure
+            print("[accommodation] could not prune proof image:", exc)
+    return removed
+
+
 def _zs_extract_messages(payload):
     """Be liberal: accept a bare list, {"value":[...]}, or {"body":{"value":[...]}}."""
     if isinstance(payload, list):
@@ -774,6 +878,7 @@ def zs_finalize(target_date=None):
 
     result = process(Payload(date=target_date, messages=lines))
     _zs_prune()
+    _prune_proof_images()
     return {"date": target_date, "count": len(lines), "result": result}
 
 
@@ -1395,7 +1500,14 @@ new Chart(document.getElementById('trendChart'),{type:'line',data:{labels:__TREN
     html += '<div class="chart-box"><h3>Total Scores (lower = better)</h3><canvas id="barChart"></canvas></div>'
     html += '<div class="chart-box"><h3>Daily Trend</h3><canvas id="trendChart"></canvas></div>'
     html += '</div>'
-    html += '<div class="footer">Auto-refreshes every 5 min</div>'
+    footer_note = 'Auto-refreshes every 5 min'
+    waiting = acc_pending_count()
+    if waiting:
+        # Deliberately unlinked: the commissioner knows the URL, and players do not
+        # need it. Without this the queue is invisible now that the button is gone.
+        footer_note += (' &middot; ' + str(waiting) + ' item' + ('' if waiting == 1 else 's')
+                        + ' awaiting the Games Commissioner')
+    html += '<div class="footer">' + footer_note + '</div>'
     html += '</div>'
     html += js
     html += '</body></html>'
@@ -1649,6 +1761,7 @@ table.board{width:100%;border-collapse:collapse;background:rgba(255,255,255,.03)
 .nav-btn.ghost{background:rgba(255,255,255,.04);color:#888;border-color:rgba(255,255,255,.12)}
 .nav-btn.ghost:hover{color:#eee}
 .empty{color:#7a8494;font-style:italic;font-size:.92em}
+.warn-inline{color:#ffcd56;font-size:.88em;margin:6px 0}
 .inline{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
 .inline input[type=number]{width:90px}
 .inline input[type=text]{flex:1;min-width:160px}
@@ -1743,6 +1856,9 @@ def accommodation_submit(player: str = Form(""), start_date: str = Form(""),
 
     if not player:
         return _acc_error("Player name is required.", player)
+    unknown = unknown_player_message(player)
+    if unknown:
+        return _acc_error(unknown, player)
     if not start or not end:
         return _acc_error("Enter valid start and end dates.", player)
     if end < start:
@@ -1797,7 +1913,11 @@ def accommodation_board():
     else:
         table = '<p class="empty">Nobody has asked for time away yet. Impressive, or suspicious.</p>'
 
-    body = ('<a class="back" href="/">&larr; Back to leaderboard</a>'
+    waiting = len([r for r in rows if r["status"] == "pending"])
+    nudge = _banner("warn", str(waiting) + " request" + ("" if waiting == 1 else "s")
+                    + " still waiting on the Games Commissioner.") if waiting else ""
+
+    body = ('<a class="back" href="/">&larr; Back to leaderboard</a>' + nudge +
             '<div class="panel">' + table + '</div>'
             '<div class="footer"><a class="back" href="/accommodation">File a new request</a></div>')
     return form_page("Leave board", body, ribbon="Leave Board",
@@ -1877,6 +1997,9 @@ async def backfill_submit(player: str = Form(""), play_date: str = Form(""),
 
     if not player:
         return _backfill_error("Player name is required.", player, **kept)
+    unknown = unknown_player_message(player)
+    if unknown:
+        return _backfill_error(unknown, player, **kept)
     if not day:
         return _backfill_error("Enter a valid day played.", player, **kept)
     if day >= today_local():
@@ -1975,11 +2098,14 @@ def commissioner_queue(request: Request, error: str = "", done: str = ""):
     if pending_acc:
         for r in pending_acc:
             reason = ('<p>' + esc(r["reason"]) + '</p>') if r["reason"] else ''
+            unknown = unknown_player_message(r["player"])
+            warn = ('<p class="warn-inline">' + esc(unknown)
+                    + ' Approving this excuses nobody.</p>') if unknown else ''
             acc_html += (
                 '<div class="review"><div class="meta">'
                 '<h4>' + esc(r["player"]) + '</h4>'
                 '<p class="muted">' + esc(r["start_date"]) + ' &rarr; ' + esc(r["end_date"]) +
-                ' &middot; ' + esc(r["kind"]) + '</p>' + reason +
+                ' &middot; ' + esc(r["kind"]) + '</p>' + warn + reason +
                 '<p class="muted">Signed: ' + esc(r["signature"] or "-") + '</p>'
                 '<form method="post" action="/commissioner/accommodation/' + str(r["id"]) + '">'
                 '<div class="inline">'
@@ -2059,7 +2185,12 @@ def commissioner_decide_accommodation(acc_id: int, request: Request,
         return RedirectResponse(url="/commissioner?error=" + quote("Request not found."),
                                 status_code=303)
     row = rows[0]
+    previous = row["status"]
     status = "approved" if action == "approve" else "denied"
+    if previous == status:
+        return RedirectResponse(
+            url="/commissioner?error=" + quote(row["player"] + " is already " + status + "."),
+            status_code=303)
 
     _acc_write(
         "UPDATE accommodations SET status = ?, decided_at = ?, decision_note = ? WHERE id = ?",
@@ -2071,6 +2202,10 @@ def commissioner_decide_accommodation(acc_id: int, request: Request,
         changed = excuse_recorded_days(row["player"], row["start_date"], row["end_date"], row["kind"])
         if changed:
             message += " (" + str(len(changed)) + " already-scored penalty day(s) reversed)"
+    elif previous == "approved":
+        reverted = unexcuse_recorded_days(row["player"], row["start_date"], row["end_date"])
+        if reverted:
+            message += " (" + str(len(reverted)) + " excused day(s) back to penalty)"
     return RedirectResponse(url="/commissioner?done=" + quote(message), status_code=303)
 
 
