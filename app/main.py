@@ -2026,3 +2026,222 @@ def commissioner_proof_image(proof_id: int, request: Request):
     if not os.path.exists(path):
         return JSONResponse(status_code=404, content={"error": "not found"})
     return FileResponse(path, media_type=rows[0]["image_mime"] or "image/png")
+
+# Hidden admin: adjust a single player's score for a specific date.
+# ---------------------------------------------------------------------------
+# Not linked anywhere in the UI and excluded from the OpenAPI schema (/docs).
+# The URL path is configurable via ZS_ADMIN_PATH (default "/backstage"); set
+# ZS_ADMIN_TOKEN to additionally require ?token=... on the page and its APIs.
+# Editing a day's cell recomputes the ENTIRE leaderboard from history so
+# totals / averages / wins / penalty counts all stay consistent.
+# =========================================================================== #
+
+ZS_ADMIN_PATH = (os.environ.get("ZS_ADMIN_PATH", "/backstage").rstrip("/") or "/backstage")
+ZS_ADMIN_TOKEN = os.environ.get("ZS_ADMIN_TOKEN", "")
+
+
+def recompute_state_from_history():
+    """Rebuild the aggregate leaderboard (STATE_FILE) from HISTORY_FILE.
+
+    Mirrors process()'s accounting so an edited day stays consistent: per day,
+    wins go to the best non-penalty scorers, and penalty cells count toward
+    penalty_days.
+    """
+    history = load_json(HISTORY_FILE)
+    state = {}
+    for day in sorted(history.keys()):
+        cells = {}
+        for p, v in history[day].items():
+            if isinstance(v, dict):
+                z = int(v.get("zip", 0))
+                pa = int(v.get("patch", 0))
+                pen = bool(v.get("penalty", False))
+            else:
+                z, pa, pen = 0, 0, False
+            cells[p] = {"zip": z, "patch": pa, "penalty": pen}
+        real = {p: d for p, d in cells.items() if not d["penalty"]}
+        pool = real if real else cells
+        best_zip = min(pool.items(), key=lambda x: x[1]["zip"])[0] if pool else None
+        best_patch = min(pool.items(), key=lambda x: x[1]["patch"])[0] if pool else None
+        best_total = min(pool.items(), key=lambda x: x[1]["zip"] + x[1]["patch"])[0] if pool else None
+        for p, d in cells.items():
+            s = state.setdefault(p, {"zip_total": 0, "patch_total": 0, "days": 0,
+                                     "penalty_days": 0, "zip_wins": 0, "patch_wins": 0,
+                                     "total_wins": 0})
+            s["zip_total"] += d["zip"]
+            s["patch_total"] += d["patch"]
+            s["days"] += 1
+            if d["penalty"]:
+                s["penalty_days"] += 1
+            if p == best_zip:
+                s["zip_wins"] += 1
+            if p == best_patch:
+                s["patch_wins"] += 1
+            if p == best_total:
+                s["total_wins"] += 1
+    save_json(STATE_FILE, state)
+    return state
+
+
+def _admin_auth_ok(token):
+    return (not ZS_ADMIN_TOKEN) or (token == ZS_ADMIN_TOKEN)
+
+
+def admin_set_score(date: str, player: str, zip: int = 0, patch: int = 0,
+                    penalty: bool = False, token: str = ""):
+    if not _admin_auth_ok(token):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    player = player.strip()
+    if not date or not player:
+        return JSONResponse(status_code=400, content={"error": "date and player are required"})
+    history = load_json(HISTORY_FILE)
+    history.setdefault(date, {})
+    history[date][player] = {"zip": int(zip), "patch": int(patch),
+                             "total": int(zip) + int(patch), "penalty": bool(penalty)}
+    save_json(HISTORY_FILE, history)
+    recompute_state_from_history()
+    return {"status": "ok", "date": date, "player": player, "cell": history[date][player]}
+
+
+def admin_delete_score(date: str, player: str, token: str = ""):
+    if not _admin_auth_ok(token):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    history = load_json(HISTORY_FILE)
+    if date in history and player in history[date]:
+        del history[date][player]
+        if not history[date]:
+            del history[date]
+        save_json(HISTORY_FILE, history)
+        recompute_state_from_history()
+        return {"status": "deleted", "date": date, "player": player}
+    return {"status": "not_found", "date": date, "player": player}
+
+
+def admin_page(token: str = ""):
+    if not _admin_auth_ok(token):
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    return HTMLResponse(content=ADMIN_HTML.replace("__ADMIN__", ZS_ADMIN_PATH))
+
+
+app.add_api_route(ZS_ADMIN_PATH, admin_page, methods=["GET"],
+                  response_class=HTMLResponse, include_in_schema=False)
+app.add_api_route(ZS_ADMIN_PATH + "/set", admin_set_score, methods=["POST"],
+                  include_in_schema=False)
+app.add_api_route(ZS_ADMIN_PATH + "/delete", admin_delete_score, methods=["POST"],
+                  include_in_schema=False)
+
+
+ADMIN_HTML = """<!DOCTYPE html><html><head><title>Backstage</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#1a1a2e;color:#eee}
+.container{max-width:820px;margin:0 auto;padding:24px}
+.brand{text-align:center;margin-bottom:10px}
+.logo{max-width:170px;height:auto}
+h1{text-align:center;color:#4ecca3;margin:.2em 0}
+.sub{text-align:center;color:#888;margin-bottom:24px;font-size:.9em}
+.card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:20px;margin-bottom:20px}
+label{display:block;font-size:.8em;color:#9aa;text-transform:uppercase;letter-spacing:1px;margin:12px 0 6px}
+input[type=text],input[type=number],input[type=date]{width:100%;padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:#0f0f1e;color:#eee;font-size:1em}
+.row{display:flex;gap:14px;flex-wrap:wrap}
+.row>div{flex:1;min-width:140px}
+.chk{display:flex;align-items:center;gap:8px;margin-top:14px}
+.chk input{width:18px;height:18px}
+.btns{display:flex;gap:12px;margin-top:20px;flex-wrap:wrap}
+button{border:none;border-radius:8px;padding:11px 22px;font-size:.95em;font-weight:bold;cursor:pointer}
+.save{background:#4ecca3;color:#08131b}
+.del{background:#e94560;color:#fff}
+.ghost{background:rgba(255,255,255,.08);color:#ccc}
+button:hover{opacity:.9}
+#msg{margin-top:16px;min-height:1.2em;font-size:.95em}
+.ok{color:#4ecca3}.err{color:#e94560}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th{background:rgba(78,204,163,.15);color:#4ecca3;text-transform:uppercase;font-size:.75em;letter-spacing:1px;padding:10px;text-align:left}
+td{padding:9px 10px;border-bottom:1px solid rgba(255,255,255,.06)}
+tr.clk{cursor:pointer}tr.clk:hover{background:rgba(255,255,255,.06)}
+.pen{color:#e94560;font-weight:bold}
+.hint{color:#667;font-size:.8em;margin-top:6px}
+h3{color:#888}
+</style></head><body><div class="container">
+<div class="brand"><img src="/logo.png" alt="" class="logo"></div>
+<h1>Backstage</h1>
+<div class="sub">Manually set or remove a player's score for a specific date. Every edit recomputes the whole leaderboard.</div>
+<div class="card">
+<div class="row">
+<div><label>Date</label><input type="date" id="date"></div>
+<div><label>Player</label><input type="text" id="player" list="players" autocomplete="off" placeholder="Exact name"></div>
+</div>
+<datalist id="players"></datalist>
+<div class="row">
+<div><label>Zip</label><input type="number" id="zip" value="0"></div>
+<div><label>Patch</label><input type="number" id="patch" value="0"></div>
+</div>
+<div class="chk"><input type="checkbox" id="penalty"><label style="margin:0">Mark as penalty day</label></div>
+<div class="hint">Click a row in the table below to load that player into the form.</div>
+<div class="btns">
+<button class="ghost" onclick="loadCell()">Load current</button>
+<button class="save" onclick="save()">Save</button>
+<button class="del" onclick="del()">Delete</button>
+</div>
+<div id="msg"></div>
+</div>
+<div class="card">
+<h3 style="margin:0 0 6px">Scores on <span id="dlabel">(pick a date)</span></h3>
+<table><thead><tr><th>Player</th><th>Zip</th><th>Patch</th><th>Total</th><th>Penalty</th></tr></thead>
+<tbody id="dbody"><tr><td colspan="5" style="color:#667">No data</td></tr></tbody></table>
+</div>
+</div>
+<script>
+const ADMIN="__ADMIN__";
+const TOKEN=new URLSearchParams(location.search).get("token")||"";
+let HIST={};
+const $=id=>document.getElementById(id);
+function qs(o){return Object.keys(o).map(k=>encodeURIComponent(k)+"="+encodeURIComponent(o[k])).join("&");}
+function cell(d,p){const v=(HIST[d]||{})[p];if(v==null)return null;if(typeof v==="object")return v;return {zip:0,patch:0,total:v,penalty:false};}
+async function loadHistory(){
+  HIST=await fetch("/history").then(r=>r.json()).catch(()=>({}));
+  const names=new Set();
+  Object.values(HIST).forEach(day=>Object.keys(day).forEach(n=>names.add(n)));
+  $("players").innerHTML=[...names].sort().map(n=>'<option value="'+n+'">').join("");
+  renderDay();
+}
+function renderDay(){
+  const d=$("date").value;$("dlabel").textContent=d||"(pick a date)";
+  const day=HIST[d]||{};const keys=Object.keys(day).sort();
+  if(!keys.length){$("dbody").innerHTML='<tr><td colspan="5" style="color:#667">No data</td></tr>';return;}
+  $("dbody").innerHTML=keys.map(p=>{const c=cell(d,p);return '<tr class="clk" data-p="'+p+'" onclick="pick(this)"><td>'+p+'</td><td>'+c.zip+'</td><td>'+c.patch+'</td><td>'+c.total+'</td><td>'+(c.penalty?'<span class="pen">PENALTY</span>':'')+'</td></tr>';}).join("");
+}
+function pick(el){$("player").value=el.getAttribute("data-p");loadCell();}
+function loadCell(){
+  const c=cell($("date").value,$("player").value.trim());
+  if(c){$("zip").value=c.zip;$("patch").value=c.patch;$("penalty").checked=!!c.penalty;msg("Loaded current value.","ok");}
+  else{msg("No existing score for that date/player - Save will create one.","");}
+}
+function msg(t,cls){const m=$("msg");m.textContent=t;m.className=cls||"";}
+async function post(path,params){
+  params.token=TOKEN;
+  const r=await fetch(ADMIN+path+"?"+qs(params),{method:"POST"});
+  return {ok:r.ok,data:await r.json().catch(()=>({}))};
+}
+async function save(){
+  const date=$("date").value,player=$("player").value.trim();
+  if(!date||!player){msg("Date and player are required.","err");return;}
+  const res=await post("/set",{date:date,player:player,zip:$("zip").value||0,patch:$("patch").value||0,penalty:$("penalty").checked});
+  if(res.ok&&res.data.status==="ok"){msg("Saved "+player+" for "+date+".","ok");await loadHistory();}
+  else{msg("Save failed: "+JSON.stringify(res.data),"err");}
+}
+async function del(){
+  const date=$("date").value,player=$("player").value.trim();
+  if(!date||!player){msg("Date and player are required.","err");return;}
+  if(!confirm("Delete "+player+"'s score for "+date+"?"))return;
+  const res=await post("/delete",{date:date,player:player});
+  if(res.ok&&res.data.status==="deleted"){msg("Deleted.","ok");await loadHistory();}
+  else if(res.data&&res.data.status==="not_found"){msg("No such score to delete.","err");}
+  else{msg("Delete failed: "+JSON.stringify(res.data),"err");}
+}
+$("date").addEventListener("change",renderDay);
+document.addEventListener("DOMContentLoaded",loadHistory);
+</script>
+</body></html>"""
