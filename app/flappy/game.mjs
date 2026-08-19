@@ -4,7 +4,6 @@
  * config.mjs, so this file is glue.
  */
 import { CONFIG } from './config.mjs';
-import { randomSeed } from './rng.mjs';
 import {
   createSim, queueFlap, step, durationMs, STATE,
 } from './sim.mjs';
@@ -16,13 +15,13 @@ const BASE = '/flappy/static/';
 const API = '/flappy/api/';
 const WING_SEQUENCE = [0, 1, 2, 1];
 const RESTART_LOCKOUT_MS = 650; // stops the death tap restarting the run
+const BEAT_MS = 5000; // matches BEAT_INTERVAL_MS in flappy.py
 
 const el = {
   canvas: document.getElementById('game'),
   player: document.getElementById('player'),
   post: document.getElementById('post'),
   status: document.getElementById('status'),
-  seed: document.getElementById('seed'),
 };
 
 const view = {
@@ -51,6 +50,9 @@ const run = {
   wingMs: 0,
   submitted: false,
   posted: false, // a run that reached the board must never reach it twice
+  session: '', // the server's handle for this run
+  lastBeatMs: 0,
+  wasPlaying: false,
 };
 
 let atlas = null;
@@ -58,6 +60,10 @@ let renderer = null;
 let audio = null;
 let lastFrameMs = 0;
 let announcedBadge = 0;
+// A world the server has handed over, waiting to be played. Fetched ahead of
+// time so that tapping to start still feels instant.
+let nextSession = null;
+let sessionInFlight = null;
 
 // --------------------------------------------------------------------------
 // Persisted odds and ends
@@ -93,20 +99,87 @@ function panelLines(lines) {
 // Run lifecycle
 // --------------------------------------------------------------------------
 
+/**
+ * Ask the server for a world to play.
+ *
+ * The seed used to be picked here. It is picked there now, because a seed the
+ * client chooses is a seed the client can shop around for: the physics in this
+ * folder can be imported and searched for a perfect run offline. One request
+ * ahead of time keeps the first tap instant.
+ */
+function prefetchSession() {
+  if (nextSession || sessionInFlight) return sessionInFlight;
+  sessionInFlight = fetch(API + 'session', { method: 'POST' })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      nextSession = (data && data.seed) ? data : null;
+      sessionInFlight = null;
+      return nextSession;
+    })
+    .catch(() => { sessionInFlight = null; return null; });
+  return sessionInFlight;
+}
+
 function startRun() {
-  const seed = randomSeed();
-  view.sim = createSim(seed);
+  if (!nextSession) {
+    // Nothing in hand. Ask, and start as soon as one arrives.
+    setStatus('Getting a fresh run...', '');
+    panelLines([{ text: 'GETTING A RUN...' }]);
+    prefetchSession().then((got) => { if (got) startRun(); });
+    return;
+  }
+  const issued = nextSession;
+  nextSession = null;
+
+  view.sim = createSim(issued.seed);
+  run.session = issued.session;
   run.startMs = performance.now();
   run.decorBase = view.decorScroll;
   run.submitted = false;
   run.posted = false;
   run.wingMs = 0;
+  run.lastBeatMs = 0;
+  run.wasPlaying = false;
   announcedBadge = 0;
   view.badge = null;
   view.score = 0;
   view.angle = 0;
-  if (el.seed) el.seed.textContent = 'Seed ' + seed;
   panelLines([]);
+  setStatus('Tap, click, Space or Up to flap. M mutes.', '');
+  prefetchSession(); // have the next one ready before this one ends
+}
+
+/**
+ * Tell the server the run is still going, and how far it has got.
+ *
+ * Cheap and frequent. Comparing how far the simulation advanced against how
+ * much of the server's own time passed is what stops a run being computed in
+ * milliseconds and handed in as if it had been played.
+ */
+function sendBeat(tick) {
+  if (!run.session) return;
+  fetch(API + 'beat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session: run.session, tick }),
+    keepalive: true,
+  }).catch(() => { /* a dropped beat is survivable, the server allows for it */ });
+}
+
+function pulse(nowMs) {
+  const sim = view.sim;
+  if (!sim || !run.session) return;
+  const playing = sim.state === STATE.PLAYING;
+  if (playing && !run.wasPlaying) {
+    run.wasPlaying = true;
+    run.lastBeatMs = nowMs;
+    sendBeat(sim.tick); // marks where the clock started
+    return;
+  }
+  if (playing && nowMs - run.lastBeatMs >= BEAT_MS) {
+    run.lastBeatMs = nowMs;
+    sendBeat(sim.tick);
+  }
 }
 
 function badgeFor(score) {
@@ -121,6 +194,7 @@ function onDead() {
     view.best = sim.score;
     writeStore(CONFIG.bestKey, view.best);
   }
+  if (run.wasPlaying) sendBeat(sim.tick); // marks where the clock stopped
   submitRun();
 }
 
@@ -152,16 +226,17 @@ async function submitRun() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        session: run.session,
         player,
         score: sim.score,
-        seed: sim.seed,
         duration_ms: durationMs(sim),
         flaps: sim.flaps.slice(0, CONFIG.maxFlapTrace),
       }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      run.submitted = false;
+      // The session is spent either way, so retrying this run cannot work.
+      run.posted = true;
       const msg = data.error || ('Submission failed (' + res.status + ')');
       panelLines([{ text: 'NOT POSTED', color: '#e94560' }]);
       setStatus(msg, 'bad');
@@ -170,6 +245,13 @@ async function submitRun() {
     writeStore(CONFIG.playerKey, data.player || player);
     run.posted = true;
     el.player.value = data.player || player;
+
+    if (data.counted === false) {
+      panelLines([{ text: 'NOT COUNTED', color: '#e94560' }]);
+      setStatus(data.reason || 'That run could not be verified.', 'bad');
+      return;
+    }
+
     const lines = [{ text: 'POSTED AS ' + (data.player || player), color: '#4ecca3' }];
     if (data.rank) lines.push({ text: 'ALL TIME RANK ' + data.rank });
     if (data.personal_best) lines.push({ text: 'NEW PERSONAL BEST', color: '#ffd23f' });
@@ -238,7 +320,7 @@ function bindInput() {
   });
   el.post.addEventListener('click', () => {
     if (run.posted) {
-      setStatus('That run is already on the board.', 'good');
+      setStatus('That run has already been sent.', 'good');
       return;
     }
     run.submitted = false;
@@ -324,6 +406,7 @@ function frame(nowMs) {
     }
     alpha = Math.max(0, Math.min(1, (nowMs - run.startMs) / CONFIG.stepMs - sim.tick));
     drainEvents(sim);
+    pulse(nowMs);
     if (!wasDead && sim.state === STATE.DEAD) onDead();
 
     view.phase = sim.state;
@@ -377,8 +460,18 @@ async function boot() {
   renderer = createRenderer(el.canvas, atlas);
   renderer.resize();
   bindInput();
+  prefetchSession();
   setStatus('Tap, click, Space or Up to flap. M mutes.', '');
   lastFrameMs = performance.now();
+
+  // A handle for the test harness, and only when it is asked for. Nothing is
+  // hidden from the browser anyway: the physics are a static module and the
+  // seed arrives over the wire, which is exactly why none of the anti-cheat
+  // depends on the client keeping a secret.
+  if (new URLSearchParams(location.search).has('debug')) {
+    window.__flappy = { view, run, CONFIG, STATE, queueFlap, step };
+  }
+
   requestAnimationFrame(frame);
 }
 

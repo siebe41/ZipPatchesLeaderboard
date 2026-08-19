@@ -157,20 +157,72 @@ means changing your capitalization renames you rather than splitting you in two.
 | `GET /flappy` | The game |
 | `GET /flappy/board` | The leaderboard, four views |
 | `GET /flappy/static/*` | Game files, served from `app/flappy/` |
+| `POST /flappy/api/session` | Start a run and get the world to play it in |
+| `POST /flappy/api/beat` | Progress ping while a run is in play |
 | `POST /flappy/api/score` | Submit a finished run |
 | `GET /flappy/api/board` | Board data; `view` is `alltime`, `season`, `today`, or `volume` |
 | `GET /flappy/api/player/{name}` | One player's bests, totals, ranks, and recent runs |
 
 ### Tables
 
-One new table, `flappy_runs`, in the existing SQLite file on `./data:/home`. Every table this
-module creates is prefixed `flappy_`, so it is obvious at a glance what belongs to the game.
-Every run is stored, not just personal bests, which is what makes the "most deployed" view
-possible. Input traces are pruned after 30 days; the score row itself is kept forever.
+Two tables in the existing SQLite file on `./data:/home`. `flappy_runs` holds every run,
+and `flappy_sessions` holds the worlds handed out and when. Every table this module creates
+is prefixed `flappy_`, so it is obvious at a glance what belongs to the game. Every run is
+stored, not just personal bests, which is what makes the "most deployed" view possible.
+Input traces are pruned after 30 days; the score row itself is kept forever.
 
 There is no season column, and there never will be. The four views are the same rows with a
 different date window applied, worked out in local time when the board is queried. Nothing
 rolls a season over, so nothing can be late or run twice.
+
+### Keeping the board honest
+
+The game is deterministic, and that cuts both ways. It is what makes a run checkable, and it
+is also what made the first version trivially forgeable: `sim.mjs` and `config.mjs` are
+static files, so anyone can import them, search offline for a perfect set of inputs in a few
+milliseconds, and post the result. It replays like a real run because it is one, just not one
+anybody played. That is not hypothetical; it is how the board was first broken.
+
+So replaying a submission is the floor rather than the ceiling. Replay proves a trace is
+self-consistent. It cannot prove a person produced it. The checks look instead at whether the
+run cost what a run costs.
+
+| What is checked | How |
+| --------------- | --- |
+| The world | The seed is issued by `POST /flappy/api/session`, is never chosen or shown by the client, and is spent the moment a run is posted against it |
+| The score | The server replays the trace and records what the replay says. A claimed score the trace does not produce is refused |
+| The clock | The session starts when the seed is handed out, and heartbeats mark progress while the run is in play. A run that simulates two minutes has to have taken two minutes |
+| The hand | Taps land on a spread of intervals, because hands are not clocks. Machine timing shows up as a spike on one exact value |
+
+The hand check is measured rather than guessed. Across 800 simulated played runs the largest
+share of gaps landing on a single exact value was 0.20; across 286 runs from solvers with no
+timing noise the smallest was 0.32. `MODAL_SHARE_LIMIT` sits at 0.28, in the empty space
+between them, and only applies once a run has enough inputs to have a shape at all.
+
+A run that fails these is stored and answered with HTTP 202 and `counted: false`, along with
+the reason. It stays in the table for review rather than disappearing, and the board only
+shows runs with `verified = 1`.
+
+What this deliberately does not claim: someone patient enough to pace a forged run in real
+time and scatter its timing can still get through. Closing that would need something a
+browser game cannot offer. The win is that cheating now costs the same wall clock time as
+playing, which is the practical limit here.
+
+Every threshold is a named constant near the top of the "Deciding whether a run happened"
+section of `app/flappy.py`, with the reasoning next to it.
+
+Runs recorded before this existed are re-judged once, at import. A trace that does not
+reproduce its own score is voided, and one that replays but was computed rather than played
+is caught by the same hand checks. Runs whose trace has already been pruned are kept, because
+unjudgeable is not the same as suspect. `tools/flappy_admin.py` is there for the cases a
+person has to decide:
+
+```
+python tools/flappy_admin.py suspects          # what was held back, and why
+python tools/flappy_admin.py show 41           # one run, with its timing evidence
+python tools/flappy_admin.py void 41 --why "posted from a script"
+python tools/flappy_admin.py restore 41
+```
 
 ### Tuning
 
@@ -181,16 +233,18 @@ shrinks and the scroll never speeds up.
 
 The simulation in `app/flappy/sim.mjs` is deterministic. It runs on a fixed 1/120 s timestep
 with rendering interpolated separately, so the same seed and the same inputs produce the same
-run at any frame rate. That is what lets `app/flappy.py` check whether a submitted score could
-physically have happened in the time claimed. A handful of constants are mirrored into
-`flappy.py` for that check, and `tools/check_flappy_api.py` asserts the two files still agree.
+run at any frame rate. `app/flappy.py` carries a port of that simulation so the server can
+replay a submission for itself, which is only sound while the two agree exactly, so
+`tools/check_sim_parity.py` runs both engines over the same traces and compares every field.
 
-Three checks worth running after a tuning change:
+Five checks worth running after a tuning change:
 
 | Command | What it proves |
 | ------- | -------------- |
 | `node tools/test_sim.mjs` | The simulation is deterministic and the physics behave |
 | `node tools/probe_difficulty.mjs` | A competent player can still clear ten obstacles |
+| `python tools/check_sim_parity.py` | The Python and JavaScript simulations still agree |
+| `python tools/check_audit.py` | Forged runs are voided and played runs are kept |
 | `python tools/check_flappy_api.py <base-url> <data-dir>` | The API works and the real leaderboard files are untouched |
 
 Point the last one at a throwaway data directory, never the live one.
