@@ -217,12 +217,7 @@ def known_players():
 
 
 def resolve_player(name):
-    """Bind a hand-typed name to the roster, or explain what was probably meant.
-
-    Returns ``(canonical_name, error_message)``. The same containment-then-fuzzy
-    order the accommodation form uses: typing only a first name is the common
-    miss, and difflib scores that badly against a full name.
-    """
+    """Bind a hand-typed name to the roster after sanitising the input."""
     cleaned = clean_player_name(name)
     if not cleaned:
         return "", "Enter your name so the run can be posted."
