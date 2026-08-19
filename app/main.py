@@ -53,6 +53,8 @@ def logo():
         return FileResponse(LOGO_PATH, media_type="image/png")
     return JSONResponse(status_code=404, content={"error": "not found"})
 
+from flappy import router as flappy_router  # side game, isolated; see README
+app.include_router(flappy_router)
 
 
 class Payload(BaseModel):
