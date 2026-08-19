@@ -51,6 +51,7 @@ const run = {
   deadAtMs: 0,
   wingMs: 0,
   submitted: false,
+  posted: false, // a run that reached the board must never reach it twice
 };
 
 let atlas = null;
@@ -99,6 +100,7 @@ function startRun() {
   run.startMs = performance.now();
   run.decorBase = view.decorScroll;
   run.submitted = false;
+  run.posted = false;
   run.wingMs = 0;
   announcedBadge = 0;
   view.badge = null;
@@ -129,7 +131,7 @@ function onDead() {
 
 async function submitRun() {
   const sim = view.sim;
-  if (!sim || run.submitted) return;
+  if (!sim || run.submitted || run.posted) return;
   const player = (el.player.value || '').trim();
   if (!player) {
     panelLines([{ text: 'ENTER YOUR NAME BELOW', color: '#8fd0ff' },
@@ -167,6 +169,7 @@ async function submitRun() {
       return;
     }
     writeStore(CONFIG.playerKey, data.player || player);
+    run.posted = true;
     el.player.value = data.player || player;
     const lines = [{ text: 'POSTED AS ' + (data.player || player), color: '#4ecca3' }];
     if (data.rank) lines.push({ text: 'ALL TIME RANK ' + data.rank });
@@ -235,6 +238,10 @@ function bindInput() {
     writeStore(CONFIG.playerKey, el.player.value.trim());
   });
   el.post.addEventListener('click', () => {
+    if (run.posted) {
+      setStatus('That run is already on the board.', 'good');
+      return;
+    }
     run.submitted = false;
     submitRun();
   });

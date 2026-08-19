@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -28,17 +29,41 @@ def reset_runs():
     Deleting from a second connection is safe: the server holds its own
     connection to the same file and SQLite serialises the two.
     """
-    import sqlite3
-    db = os.path.join(DATA, "zipscores_buffer.db")
-    if not os.path.exists(db):
+    conn = _db()
+    if conn is None:
         return
-    conn = sqlite3.connect(db, timeout=10.0)
     try:
         conn.execute("DELETE FROM flappy_runs")
         conn.execute("DELETE FROM sqlite_sequence WHERE name = 'flappy_runs'")
         conn.commit()
     except Exception:
         pass
+    finally:
+        conn.close()
+
+
+def _db():
+    import sqlite3
+    db = os.path.join(DATA, "zipscores_buffer.db")
+    if not os.path.exists(db):
+        return None
+    return sqlite3.connect(db, timeout=10.0)
+
+
+def backdate(seconds):
+    """Age every stored run, so the next submission is not rate limited.
+
+    Shifting them all by the same amount leaves their relative order intact,
+    which is what the tiebreak assertions depend on.
+    """
+    conn = _db()
+    if conn is None:
+        return
+    try:
+        conn.execute(
+            "UPDATE flappy_runs SET created_at = "
+            "strftime('%Y-%m-%dT%H:%M:%SZ', created_at, ?)", ("-%d seconds" % seconds,))
+        conn.commit()
     finally:
         conn.close()
 
@@ -103,9 +128,14 @@ print("\ngame page and static files")
 status, raw, headers = request("/flappy")
 check("GET /flappy is html", status == 200 and b"<canvas" in raw, "status %s" % status)
 
+status, raw, headers = request("/flappy/board")
+check("GET /flappy/board is html",
+      status == 200 and b"<table" in raw and b"Hall of fame" in raw, "status %s" % status)
+
 for name, expect in [("game.mjs", "text/javascript"), ("style.css", "text/css"),
                      ("atlas.png", "image/png"), ("atlas.json", "application/json"),
-                     ("sim.mjs", "text/javascript"), ("config.mjs", "text/javascript")]:
+                     ("sim.mjs", "text/javascript"), ("config.mjs", "text/javascript"),
+                     ("board.mjs", "text/javascript"), ("board.css", "text/css")]:
     status, raw, headers = request("/flappy/static/" + name)
     ctype = headers.get("content-type", "")
     check("GET /flappy/static/%s" % name,
@@ -145,12 +175,18 @@ check("unknown name is rejected", status == 404 and "No leaderboard player" in
 print("\nscore submission")
 
 
-def post_score(player, score, duration_ms=None, seed=12345, flaps=None):
+def post_score(player, score, duration_ms=None, seed=12345, flaps=None, age=180):
+    """Post a run. Ages the existing rows first so the rate limiter, which is
+    tested separately below, does not get in the way of the board assertions."""
+    if age:
+        backdate(age)
     if duration_ms is None:
         duration_ms = int((340 + (score - 1) * 160 + 26 - 79) / 110 * 1000) + 400
+    if flaps is None:
+        flaps = list(range(0, max(1, score) * 40, 40))
     return request("/flappy/api/score", "POST", {
         "player": player, "score": score, "seed": seed,
-        "duration_ms": duration_ms, "flaps": flaps or list(range(0, score * 40, 40)),
+        "duration_ms": duration_ms, "flaps": flaps,
     })
 
 
@@ -228,6 +264,92 @@ check("summary reports the best", data["best"] == 33, str(data)[:300])
 check("summary reports a rank per view",
       set(data["ranks"]) == {"alltime", "season", "today", "volume"}, str(data["ranks"]))
 
+conn = _db()
+n = conn.execute("SELECT COUNT(*) FROM flappy_runs").fetchone()[0]
+conn.close()
+check("every run is stored, not just personal bests", n == 7, "rows %d" % n)
+
+# --------------------------------------------------------------------------
+print("\nplausibility and rate limiting")
+floor_ms = int((340 + 49 * 160 + 26 - 79) / 110 * 1000)
+
+status, raw, _ = post_score("Andrew Siebert", 50, duration_ms=1000)
+check("a score faster than the obstacles arrive is refused", status == 400, raw[:200])
+check("the refusal says how long it should take",
+      b"at least" in raw and str(round(floor_ms / 1000.0, 1)).encode() in raw, raw[:200])
+
+status, raw, _ = post_score("Andrew Siebert", 50, duration_ms=floor_ms + 500)
+check("the same score at a possible pace is accepted", status == 200, raw[:200])
+
+status, raw, _ = post_score("Andrew Siebert", 3, age=0)
+check("a second run posted immediately is rate limited", status == 429, raw[:200])
+
+status, raw, _ = post_score("Andrew Siebert", 40, age=5)
+check("a long run cannot be posted seconds after the last", status == 429, raw[:200])
+
+status, raw, _ = post_score("Dorie Wallace", 3, age=0)
+check("the limit is per player, not global", status == 200, raw[:200])
+
+status, raw, _ = post_score("Sam Rivera", 8, flaps=[10, 5, 20])
+check("an out of order input trace is refused", status == 400, raw[:200])
+
+status, raw, _ = post_score("Sam Rivera", 8, flaps=[10, 99999999])
+check("an input trace outside the run is refused", status == 400, raw[:200])
+
+status, raw, _ = post_score("Sam Rivera", 8, flaps=list(range(0, 6000)))
+check("an oversized input trace is refused", status == 400, raw[:200])
+
+conn = _db()
+kept = conn.execute(
+    "SELECT COUNT(*) FROM flappy_runs WHERE flaps IS NOT NULL").fetchone()[0]
+conn.execute("UPDATE flappy_runs SET created_at = "
+             "strftime('%Y-%m-%dT%H:%M:%SZ', created_at, '-400 days')")
+conn.commit()
+before_prune = conn.execute("SELECT COUNT(*) FROM flappy_runs").fetchone()[0]
+conn.close()
+
+# The server prunes once a day and already did so on its first submission, so
+# call the function directly rather than restarting the app to see it happen.
+sys.path.insert(0, os.path.join(REPO, "app"))
+os.environ["ZS_BUFFER_DB"] = os.path.join(DATA, "zipscores_buffer.db")
+os.environ["ZS_STATE_FILE"] = state
+import flappy as flappy_module
+pruned = flappy_module.prune_traces()
+
+conn = _db()
+traces = conn.execute(
+    "SELECT COUNT(*) FROM flappy_runs WHERE flaps IS NOT NULL").fetchone()[0]
+rows_left = conn.execute("SELECT COUNT(*) FROM flappy_runs").fetchone()[0]
+conn.close()
+check("old input traces are pruned", traces == 0 and pruned == kept and kept > 1,
+      "had %d, pruned %d, left %d" % (kept, pruned, traces))
+check("pruning keeps every score row", rows_left == before_prune,
+      "rows %d, was %d" % (rows_left, before_prune))
+check("pruning is skipped once it has run today", flappy_module.prune_traces() == 0)
+check("the module file wins over the static folder",
+      flappy_module.__file__.endswith("flappy.py"), flappy_module.__file__)
+
+# --------------------------------------------------------------------------
+print("\nseasons are derived, not stamped")
+conn = _db()
+cols = {r[1] for r in conn.execute("PRAGMA table_info(flappy_runs)")}
+conn.close()
+check("no season column is written", "season" not in cols, str(sorted(cols)))
+
+status, data = get_json("/flappy/api/board?view=alltime")
+fame = data["hall_of_fame"]
+check("finished seasons appear in the hall of fame", len(fame) >= 1, str(fame)[:300])
+if fame:
+    check("a hall of fame entry names a winner and a season",
+          fame[0]["player"] and re.match(r"^\d{4}-\d{2}$", fame[0]["season"]),
+          str(fame[0]))
+    check("the hall of fame excludes the current season",
+          fame[0]["season"] < time.strftime("%Y-%m"), str(fame[0]["season"]))
+
+status, data = get_json("/flappy/api/board?view=today")
+check("a view with no qualifying run is empty, not an error",
+      status == 200 and data["rows"] == [], str(data)[:200])
+
 # --------------------------------------------------------------------------
 print("\nisolation, after all that writing")
 after = (digest(state), digest(history))
@@ -247,8 +369,6 @@ check("every new table is prefixed",
           if t not in {"buffer", "accommodations", "proofs", "sqlite_sequence"}),
       str(tables))
 check("existing tables are still there", "buffer" in tables, str(tables))
-n = conn.execute("SELECT COUNT(*) FROM flappy_runs").fetchone()[0]
-check("every run is stored, not just personal bests", n == 7, "rows %d" % n)
 conn.close()
 
 # --------------------------------------------------------------------------

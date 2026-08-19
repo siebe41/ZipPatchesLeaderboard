@@ -15,7 +15,7 @@ about what that means:
 The rules of the game itself live in ``flappy/sim.mjs`` and every tuning value
 lives in ``flappy/config.mjs``. The few constants repeated here are the ones the
 server needs in order to judge whether a submitted run was physically possible,
-and they are checked against that file by ``tools/test_flappy_api.py``.
+and they are checked against that file by ``tools/check_flappy_api.py``.
 """
 
 from fastapi import APIRouter, Request
@@ -53,12 +53,14 @@ FIRST_OBSTACLE_X = 340.0
 TILE_W = 52.0
 DUCK_X = 62.0
 DUCK_W = 34.0
+STEP_MS = 1000.0 / 120.0
 
 MAX_FLAP_TRACE = 5000
 MAX_SCORE = 100000
 MAX_DURATION_MS = 6 * 60 * 60 * 1000
 
 SEASON_HISTORY_LIMIT = 12  # past seasons kept in the hall of fame
+SEASON_SEARCH_LIMIT = 60   # how far back to look for them, in months
 BOARD_LIMIT = 10
 
 VIEWS = ("alltime", "season", "today", "volume")
@@ -369,6 +371,11 @@ def hall_of_fame():
     One query per season rather than a single grouped query, because a season
     boundary is a local-time boundary and a fixed offset in SQL gets the two
     DST changeovers wrong.
+
+    It walks backwards from last month and keeps the seasons that actually
+    produced a run, so a quiet stretch does not push the real winners off the
+    list. The walk stops at the earliest run, and in any case at
+    ``SEASON_SEARCH_LIMIT`` months, so the number of queries stays bounded.
     """
     first = _rows("SELECT MIN(created_at) AS m FROM flappy_runs WHERE score > 0")
     if not first or not first[0]["m"]:
@@ -379,28 +386,26 @@ def hall_of_fame():
 
     now = _local_now()
     local_first = earliest.astimezone(_tz())
-    year, month = local_first.year, local_first.month
-    seasons = []
-    while (year, month) < (now.year, now.month):
-        seasons.append((year, month))
-        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    oldest = (local_first.year, local_first.month)
 
+    year, month = (now.year - 1, 12) if now.month == 1 else (now.year, now.month - 1)
     out = []
-    for year, month in seasons[-SEASON_HISTORY_LIMIT:]:
+    for _ in range(SEASON_SEARCH_LIMIT):
+        if (year, month) < oldest or len(out) >= SEASON_HISTORY_LIMIT:
+            break
         clause, params = _range_clause(_month_bounds(year, month))
         rows = _rows(_BEST_PER_PLAYER % clause, params)
-        if not rows:
-            continue
-        winner = rows[0]
-        out.append({
-            "season": "%04d-%02d" % (year, month),
-            "label": _season_label("%04d-%02d" % (year, month)),
-            "player": winner["player"],
-            "score": winner["score"],
-            "created_at": winner["created_at"],
-            "players": len(rows),
-        })
-    out.reverse()
+        if rows:
+            winner = rows[0]
+            out.append({
+                "season": "%04d-%02d" % (year, month),
+                "label": _season_label("%04d-%02d" % (year, month)),
+                "player": winner["player"],
+                "score": winner["score"],
+                "created_at": winner["created_at"],
+                "players": len(rows),
+            })
+        year, month = (year - 1, 12) if month == 1 else (year, month - 1)
     return out
 
 
@@ -491,9 +496,9 @@ def submit_score(payload: ScoreIn, request: Request):
     key = name_key(canonical)
     guard = check_submission(key, payload)
     if guard:
-        return _reject(guard, status=guard_status(guard))
+        return _reject(guard[0], status=guard[1])
 
-    flaps = [int(t) for t in payload.flaps[:MAX_FLAP_TRACE] if isinstance(t, int)]
+    flaps = clean_trace(payload.flaps, payload.duration_ms)
     previous = _rows(
         "SELECT COALESCE(MAX(score), 0) AS best FROM flappy_runs WHERE player_key = ?",
         (key,),
@@ -519,17 +524,109 @@ def submit_score(payload: ScoreIn, request: Request):
     }
 
 
-# Filled in by the plausibility and rate-limit layer.
+# --------------------------------------------------------------------------- #
+# Plausibility and rate limiting
+# --------------------------------------------------------------------------- #
+#
+# None of this proves a run happened. Proving it means replaying the seed and
+# the flap trace, which is why both are stored and why the simulation was
+# written to be deterministic; the `verified` column is where that verdict will
+# go. What these checks do is make the cheap attacks cost something: posting a
+# score that no amount of skill could reach in the time claimed, or holding a
+# submit button down. That is the right amount of effort for a side game whose
+# leaderboard decides nothing.
+
+MIN_SUBMIT_GAP_S = 3          # two runs cannot finish in the same breath
+GAP_FRACTION_OF_RUN = 0.75    # nor can a 60 second run be posted 5 seconds apart
+MAX_RUNS_PER_DAY = 300        # a busy day is maybe 50 runs
+DURATION_SLACK_MS = 250       # rounding, plus the tick the death is noticed on
+TRACE_RETENTION_DAYS = 30     # matches ZS_RETENTION_DAYS in spirit
+
+_last_prune = [""]
+
+
+def _seconds_between(older, newer):
+    a, b = _parse_stamp(older), _parse_stamp(newer)
+    if a is None or b is None:
+        return None
+    return (b - a).total_seconds()
+
+
 def check_submission(player_key, payload):
+    """Returns ``(message, status)`` when a run should be refused."""
+    floor_ms = min_duration_ms(payload.score)
+    if payload.duration_ms + DURATION_SLACK_MS < floor_ms:
+        return ("That run is faster than the obstacles arrive. "
+                "%d patches takes at least %.1f seconds."
+                % (payload.score, floor_ms / 1000.0), 400)
+
+    if len(payload.flaps) > MAX_FLAP_TRACE:
+        return ("That run recorded more inputs than a run can contain.", 400)
+    if not trace_is_ordered(payload.flaps, payload.duration_ms):
+        return ("That run's input trace does not line up with its length.", 400)
+
+    now = _utc_stamp()
+    recent = _rows(
+        "SELECT created_at FROM flappy_runs WHERE player_key = ? "
+        "ORDER BY id DESC LIMIT 1", (player_key,))
+    if recent:
+        gap = _seconds_between(recent[0]["created_at"], now)
+        if gap is not None and gap < MIN_SUBMIT_GAP_S:
+            return ("Posting runs a little fast. Try again in a moment.", 429)
+        needed = payload.duration_ms / 1000.0 * GAP_FRACTION_OF_RUN
+        if gap is not None and gap < needed:
+            return ("That run is longer than the time since your last one.", 429)
+
+    start, end = _day_bounds(_local_now().date())
+    today = _rows(
+        "SELECT COUNT(*) AS n FROM flappy_runs "
+        "WHERE player_key = ? AND created_at >= ? AND created_at < ?",
+        (player_key, start, end))[0]["n"]
+    if today >= MAX_RUNS_PER_DAY:
+        return ("That is %d runs today. The board will still be here tomorrow."
+                % today, 429)
+
     return None
 
 
-def guard_status(message):
-    return 400
+def trace_is_ordered(flaps, duration_ms):
+    """A trace has to be ascending tick numbers inside the run it describes."""
+    if not flaps:
+        return True
+    limit = int(duration_ms / STEP_MS) + 240  # the ready state and the death fall
+    last = -1
+    for tick in flaps:
+        if not isinstance(tick, int) or tick < 0 or tick > limit or tick < last:
+            return False
+        last = tick
+    return True
+
+
+def clean_trace(flaps, duration_ms):
+    trimmed = [int(t) for t in flaps[:MAX_FLAP_TRACE] if isinstance(t, int)]
+    return json.dumps(trimmed)
 
 
 def prune_traces():
-    return 0
+    """Drop old input traces, keeping every score row.
+
+    A trace is only useful for verifying a recent run. The score is the record
+    and it is never touched, so the board is unaffected by this running. It is
+    lazy rather than scheduled on purpose: the brief is that this module adds no
+    job to the app's scheduler.
+    """
+    today = _local_now().strftime("%Y-%m-%d")
+    if _last_prune[0] == today:
+        return 0
+    _last_prune[0] = today
+    cutoff = _utc_stamp(datetime.now(timezone.utc)
+                        - timedelta(days=TRACE_RETENTION_DAYS))
+    with _db_lock:
+        cur = _conn.execute(
+            "UPDATE flappy_runs SET flaps = NULL "
+            "WHERE flaps IS NOT NULL AND created_at < ?", (cutoff,))
+        _conn.commit()
+        return cur.rowcount
 
 
 # --------------------------------------------------------------------------- #
@@ -592,6 +689,11 @@ def _serve(filename):
 @router.get("", include_in_schema=False)
 def game_page():
     return _serve("index.html")
+
+
+@router.get("/board", include_in_schema=False)
+def board_page():
+    return _serve("board.html")
 
 
 @router.get("/static/{path:path}", include_in_schema=False)
