@@ -20,7 +20,6 @@ const RESTART_LOCKOUT_MS = 650; // stops the death tap restarting the run
 const el = {
   canvas: document.getElementById('game'),
   player: document.getElementById('player'),
-  roster: document.getElementById('roster'),
   post: document.getElementById('post'),
   status: document.getElementById('status'),
   seed: document.getElementById('seed'),
@@ -361,20 +360,6 @@ function frame(nowMs) {
 // Boot
 // --------------------------------------------------------------------------
 
-async function loadRoster() {
-  try {
-    const res = await fetch(API + 'roster');
-    if (!res.ok) return;
-    const data = await res.json();
-    el.roster.innerHTML = '';
-    for (const name of data.players || []) {
-      const opt = document.createElement('option');
-      opt.value = name;
-      el.roster.appendChild(opt);
-    }
-  } catch (err) { /* the roster is a convenience, not a requirement */ }
-}
-
 async function boot() {
   view.best = parseInt(readStore(CONFIG.bestKey, '0'), 10) || 0;
   view.muted = readStore(CONFIG.mutedKey, '1') !== '0';
@@ -392,7 +377,6 @@ async function boot() {
   renderer = createRenderer(el.canvas, atlas);
   renderer.resize();
   bindInput();
-  loadRoster();
   setStatus('Tap, click, Space or Up to flap. M mutes.', '');
   lastFrameMs = performance.now();
   requestAnimationFrame(frame);
