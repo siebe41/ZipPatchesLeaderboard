@@ -146,12 +146,6 @@ body {
 .status.good { color: var(--accent); }
 .status.bad { color: var(--warn); }
 
-.seed {
-  font-size: 11px;
-  color: rgba(154, 164, 178, 0.6);
-  font-variant-numeric: tabular-nums;
-}
-
 @media (max-width: 520px) {
   .topbar .tagline { display: none; }
   .hud input { width: 140px; }
