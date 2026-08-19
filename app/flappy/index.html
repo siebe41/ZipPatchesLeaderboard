@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#16213e">
+<meta name="description" content="Flappy Duck. Patch the stack, miss nothing.">
+<meta property="og:title" content="Flappy Duck">
+<meta property="og:description" content="Patch the stack. Miss nothing.">
+<meta property="og:image" content="/flappy/static/share.png">
+<title>Flappy Duck</title>
+<link rel="icon" type="image/png" href="/flappy/static/favicon.png">
+<link rel="stylesheet" href="/flappy/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Flappy Duck</h1>
+  <span class="tagline">Patch the stack. Miss nothing.</span>
+  <span class="spacer"></span>
+  <a href="/flappy/board">Leaderboard</a>
+</header>
+
+<main class="stage">
+  <canvas id="game" width="288" height="512" aria-label="Flappy Duck game"></canvas>
+</main>
+
+<footer class="hud">
+  <label for="player">Player</label>
+  <input id="player" list="roster" autocomplete="off" autocapitalize="words"
+         spellcheck="false" placeholder="Your name" maxlength="60">
+  <datalist id="roster"></datalist>
+  <button id="post" type="button">Post run</button>
+  <span id="status" class="status"></span>
+  <span id="seed" class="seed"></span>
+</footer>
+
+<script type="module" src="/flappy/static/game.mjs"></script>
+<noscript>
+  <p style="padding:16px;color:#e94560">Flappy Duck needs JavaScript.</p>
+</noscript>
+</body>
+</html>
