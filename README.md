@@ -213,16 +213,40 @@ section of `app/flappy.py`, with the reasoning next to it.
 
 Runs recorded before this existed are re-judged once, at import. A trace that does not
 reproduce its own score is voided, and one that replays but was computed rather than played
-is caught by the same hand checks. Runs whose trace has already been pruned are kept, because
-unjudgeable is not the same as suspect. `tools/flappy_admin.py` is there for the cases a
-person has to decide:
+is caught by the same hand checks. A score stored next to an empty trace is voided too,
+because pruning empties the column rather than writing an empty list, so a score with nothing
+beside it was typed rather than played. Runs whose trace has actually been pruned are kept,
+because unjudgeable is not the same as suspect.
+
+One wrinkle worth knowing if you touch this code. The release that shipped the game stored
+each trace twice: `clean_trace()` returned `json.dumps(list)` and the insert called
+`json.dumps()` on that string again, so every row written before this change holds a JSON
+string containing a JSON array. `decode_trace()` reads both shapes. Reading only the current
+one parses to a string rather than a list, files the whole existing board under "no trace",
+and clears nothing, which is exactly what the first attempt at this did. The fixtures in
+`tools/check_audit.py` write the legacy shape on purpose for that reason.
+
+`tools/flappy_admin.py` is there for the cases a person has to decide:
 
 ```
 python tools/flappy_admin.py suspects          # what was held back, and why
 python tools/flappy_admin.py show 41           # one run, with its timing evidence
 python tools/flappy_admin.py void 41 --why "posted from a script"
 python tools/flappy_admin.py restore 41
+python tools/flappy_admin.py recheck           # judge everything again after moving a threshold
 ```
+
+To wipe the board and start over, which is the honest option when the scores already there
+are not worth sorting through:
+
+```
+python tools/flappy_admin.py clear                      # every run, asks first
+python tools/flappy_admin.py clear --player "Some Name" # one player
+```
+
+`clear` only ever deletes from the `flappy_` tables. On the server the database is
+`/home/zipscores_buffer.db` inside the container, so either run it there or point `--db` at
+`./data/zipscores_buffer.db` on the host.
 
 ### Tuning
 
