@@ -29,61 +29,9 @@ if os.path.exists(DB):
     os.remove(DB)
 os.environ["ZS_BUFFER_DB"] = DB
 
-from check_sim_parity import bot_trace  # noqa: E402
-
 import flappy  # noqa: E402
+from flappy_bot import bot_trace, long_played_trace, played_trace  # noqa: E402
 
-
-def played_trace(seed, rng, limit=45):
-    """A trace shaped like a person playing: ragged timing, imperfect aim.
-
-    Same look-ahead as the bot, deliberately, so the only difference between an
-    honest run and a forged one in this test is the thing the audit actually
-    looks at. A hand does not tap twice on the same offset or aim at the exact
-    centre of the gap, and that scatter is what the checks key on.
-    """
-    sim = flappy.Sim(seed)
-    flaps = []
-    ready_at = -999
-    aim = rng.uniform(-9, 9)
-    while sim.state != flappy.DEAD and sim.score < limit and sim.tick < 60000:
-        if sim.state == flappy.READY:
-            want = True
-        else:
-            target = None
-            i = max(0, sim.next_score_index - 1)
-            while target is None and i < sim.next_score_index + 3:
-                if sim.obstacle_screen_x(i) + flappy.TILE_W >= flappy.DUCK_X:
-                    target = sim.gap_center(i)
-                i += 1
-            if target is None:
-                target = 240.0
-            want = sim.duck_y + flappy.DUCK_H / 2 > target + 22 + aim
-        if want and sim.tick >= ready_at:
-            flaps.append(sim.tick)
-            sim.queue_flap(sim.tick)
-            # A hand needs a moment before the next tap, and never the same one.
-            ready_at = sim.tick + rng.randint(8, 22)
-            aim = rng.uniform(-9, 9)
-        sim.step()
-    return flaps
-
-
-def long_played_trace(seed, rng, want=12, tries=40):
-    """A played run that got somewhere.
-
-    Honest runs die early all the time. The ones that reach a leaderboard, and
-    so the ones the audit has to get right, are the ones that did not.
-    """
-    best, best_score = [], -1
-    for _ in range(tries):
-        trace = played_trace(seed, rng)
-        score = flappy.replay(seed, trace).score
-        if score > best_score:
-            best, best_score = trace, score
-        if score >= want:
-            return trace
-    return best
 
 
 FAILED = []

@@ -20,51 +20,16 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(ROOT, "app"))
+sys.path.insert(0, HERE)
 
 # The module opens a database on import, so send it somewhere disposable.
 os.environ.setdefault("ZS_BUFFER_DB", os.path.join(HERE, "_parity_scratch.db"))
 
 import flappy  # noqa: E402
+from flappy_bot import bot_trace  # noqa: E402  (shared with the other checks)
 
 FIELDS = ("score", "duration_ms", "tick", "death_tick", "play_start_tick",
           "state", "cause", "duck_y", "duck_vy", "scroll_x", "flaps", "gaps")
-
-
-def bot_trace(seed, limit=60):
-    """A trace from a look-ahead bot, which is what a forged run looks like.
-
-    Worth including for its own sake: these are long, high scoring runs that
-    exercise far more of the simulation than random flapping ever reaches.
-    """
-    sim = flappy.Sim(seed)
-    flaps = []
-    last_flap = -999
-    while sim.state != flappy.DEAD and sim.score < limit and sim.tick < 60000:
-        want = False
-        if sim.state == flappy.READY:
-            # Nothing falls on the ready screen, so a bot that only reacts to
-            # losing height would sit there forever. Something has to go first.
-            want = True
-        else:
-            target = None
-            # Scan from one obstacle back. Scoring happens when the duck's
-            # centre passes the tile's centre, which is well before the tile is
-            # behind it, so aiming at the next gap that early steers into the
-            # tile the duck is still inside.
-            i = max(0, sim.next_score_index - 1)
-            while target is None and i < sim.next_score_index + 3:
-                if sim.obstacle_screen_x(i) + flappy.TILE_W >= flappy.DUCK_X:
-                    target = sim.gap_center(i)
-                i += 1
-            if target is None:
-                target = 240.0
-            want = sim.duck_y + flappy.DUCK_H / 2 > target + 22
-        if want and sim.tick - last_flap >= 10:
-            flaps.append(sim.tick)
-            sim.queue_flap(sim.tick)
-            last_flap = sim.tick
-        sim.step()
-    return flaps
 
 
 def human_trace(rng, idle_ticks):
