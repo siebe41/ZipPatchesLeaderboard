@@ -21,7 +21,6 @@ and they are checked against that file by ``tools/check_flappy_api.py``.
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel, Field
-import difflib
 import json
 import os
 import re
@@ -203,7 +202,14 @@ def _load_state():
 
 
 def name_key(name):
-    return re.sub(r"\s+", " ", str(name or "")).strip().lower()
+    return clean_player_name(name).lower()
+
+
+def clean_player_name(name):
+    cleaned = str(name or "")
+    cleaned = re.sub(r"[\x00-\x1F\x7F]", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
 
 
 def known_players():
@@ -211,32 +217,17 @@ def known_players():
 
 
 def resolve_player(name):
-    """Bind a hand-typed name to the roster, or explain what was probably meant.
-
-    Returns ``(canonical_name, error_message)``. The same containment-then-fuzzy
-    order the accommodation form uses: typing only a first name is the common
-    miss, and difflib scores that badly against a full name.
-    """
-    cleaned = re.sub(r"\s+", " ", str(name or "")).strip()
+    """Bind a hand-typed name to the roster after sanitising the input."""
+    cleaned = clean_player_name(name)
     if not cleaned:
         return "", "Enter your name so the run can be posted."
     known = known_players()
     if not known:
-        # An empty roster means the leaderboard has not been seeded yet. Refusing
-        # every name in that state would make the game unplayable for no gain.
-        return cleaned, None
+        return "", "The leaderboard roster is unavailable right now."
     lowered = cleaned.lower()
     for existing in known:
         if existing.lower() == lowered:
             return existing, None
-
-    partial = [k for k in known if lowered in k.lower()]
-    match = partial[0] if len(partial) == 1 else None
-    if not match:
-        close = difflib.get_close_matches(cleaned, known, n=1, cutoff=0.5)
-        match = close[0] if close else None
-    if match:
-        return match, None
     return "", ('No leaderboard player named "' + cleaned + '". '
                 "Use your name exactly as it appears on the board.")
 
