@@ -128,16 +128,27 @@ leaderboard. It shares the app and the data volume and nothing else.
 
 ### Isolation guarantee
 
-Flappy Duck never writes to `leaderboard.json` or `history.json`. It never touches a daily
-rank, penalty, streak, excused day, weekly total, or win counter, and it adds no job to the
-scheduler. The only thing it borrows from the real leaderboard is the roster, read-only, so
-that a submitted name can be matched to a real player. Flappy score submissions only
-accept exact roster names (case-insensitive, whitespace-normalized) and reject freeform
-names that are not on the board.
+Flappy Duck never opens `leaderboard.json` or `history.json` at all, for reading or for
+writing. It never touches a daily rank, penalty, streak, excused day, weekly total, or win
+counter, and it adds no job to the scheduler. Names are typed by the player rather than
+looked up, so the module has no reason to read the real roster and does not reference it.
 
 All server code lives in `app/flappy.py`. `app/main.py` gains exactly two lines: the import
 and the `include_router` call. Nothing else in it changes, which keeps the live scoring path
 out of the blast radius.
+
+### Player names
+
+A name is free text. Anyone can type whatever they want and post a run under it, so the
+game is open to people who are not on the real leaderboard at all.
+
+Names are sanitized rather than validated: control characters are stripped, runs of
+whitespace collapse to one space, the result is trimmed, and anything past 60 characters is
+cut. An empty name is the only one that is refused.
+
+Runs are grouped by the lowercased name, so `andrew siebert` and `Andrew Siebert` are one
+player on the board. The spelling shown is the one from that player's most recent run, which
+means changing your capitalization renames you rather than splitting you in two.
 
 ### Routes
 
@@ -146,7 +157,6 @@ out of the blast radius.
 | `GET /flappy` | The game |
 | `GET /flappy/board` | The leaderboard, four views |
 | `GET /flappy/static/*` | Game files, served from `app/flappy/` |
-| `GET /flappy/api/roster` | Valid player names, for the name box |
 | `POST /flappy/api/score` | Submit a finished run |
 | `GET /flappy/api/board` | Board data; `view` is `alltime`, `season`, `today`, or `volume` |
 | `GET /flappy/api/player/{name}` | One player's bests, totals, ranks, and recent runs |
@@ -213,8 +223,8 @@ upload files and restart.
 
 The accommodation, proof, and Flappy Duck tables live in the same SQLite file as the message
 buffer, so they persist on the existing `./data:/home` volume with no extra setup. Flappy
-Duck adds no environment variables of its own; it reads `ZS_STATE_FILE`, `ZS_BUFFER_DB`, and
-`ZS_TIMEZONE`, and it only reads the first of those.
+Duck adds no environment variables of its own; it reads `ZS_BUFFER_DB` and `ZS_TIMEZONE`,
+and nothing else.
 
 `STATE_FILE` (`/home/leaderboard.json`) and `HISTORY_FILE` (`/home/history.json`)
 are unchanged. The buffer DB lives on the same `./data:/home` volume.

@@ -3,8 +3,8 @@
 Isolation is the whole point of this module, so it is worth being explicit
 about what that means:
 
-* It never opens ``leaderboard.json`` or ``history.json`` for writing. It reads
-  the roster, and only to check that a submitted name belongs to a real player.
+* It never opens ``leaderboard.json`` or ``history.json`` at all, for reading or
+  for writing. Players type their own name, so there is no roster to consult.
 * It never touches a daily rank, penalty, streak, excused day, weekly total or
   win counter. Nothing in here knows those concepts exist.
 * It adds no scheduled job. Seasons are derived from ``created_at`` when a board
@@ -39,9 +39,8 @@ router = APIRouter(prefix="/flappy", tags=["flappy"])
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "flappy")
 
-# Read-only. The roster is the only thing this module borrows from the real
-# leaderboard, and it borrows it to reject typos.
-STATE_FILE = os.environ.get("ZS_STATE_FILE", "/home/leaderboard.json")
+# Read-only, and only the buffer database. This module deliberately does not
+# open the real leaderboard state file, because names here are free text.
 BUFFER_DB = os.environ.get("ZS_BUFFER_DB", "/home/zipscores_buffer.db")
 TIMEZONE = os.environ.get("ZS_TIMEZONE", "America/Chicago")
 
@@ -189,16 +188,12 @@ def _write(sql, params=()):
 
 
 # --------------------------------------------------------------------------- #
-# Roster, read-only
+# Player names
 # --------------------------------------------------------------------------- #
 
-def _load_state():
-    try:
-        with open(STATE_FILE, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+# Matches the maxlength on the name box. A cap belongs on the server too,
+# because the client is not the only thing that can post a score.
+MAX_NAME_LEN = 60
 
 
 def name_key(name):
@@ -209,27 +204,21 @@ def clean_player_name(name):
     cleaned = str(name or "")
     cleaned = re.sub(r"[\x00-\x1F\x7F]", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned)
-    return cleaned.strip()
-
-
-def known_players():
-    return sorted(_load_state().keys())
+    return cleaned.strip()[:MAX_NAME_LEN].strip()
 
 
 def resolve_player(name):
-    """Bind a hand-typed name to the roster after sanitising the input."""
+    """Take the name as typed, once it has been sanitised.
+
+    This board is open to anyone who wants to play, so a name is free text and
+    is deliberately not checked against the real leaderboard roster. Runs are
+    grouped by ``name_key``, so casing and stray spacing still collapse to a
+    single player, and the board shows the most recent spelling.
+    """
     cleaned = clean_player_name(name)
     if not cleaned:
         return "", "Enter your name so the run can be posted."
-    known = known_players()
-    if not known:
-        return "", "The leaderboard roster is unavailable right now."
-    lowered = cleaned.lower()
-    for existing in known:
-        if existing.lower() == lowered:
-            return existing, None
-    return "", ('No leaderboard player named "' + cleaned + '". '
-                "Use your name exactly as it appears on the board.")
+    return cleaned, None
 
 
 # --------------------------------------------------------------------------- #
@@ -406,6 +395,11 @@ def player_summary(name):
         return {"ok": False, "error": error}
     key = name_key(canonical)
 
+    # Names are free text, so one player can arrive spelled differently on
+    # different runs. The board shows the most recent spelling, so show that
+    # here too rather than echoing whatever was typed into the URL.
+    stored = _display_names().get(key)
+
     totals = _rows(
         "SELECT COUNT(*) AS runs, COALESCE(SUM(score), 0) AS total, "
         "COALESCE(MAX(score), 0) AS best FROM flappy_runs WHERE player_key = ?",
@@ -430,7 +424,7 @@ def player_summary(name):
 
     return {
         "ok": True,
-        "player": canonical,
+        "player": stored or canonical,
         "runs": totals["runs"],
         "total": totals["total"],
         "best": totals["best"],
@@ -623,13 +617,6 @@ def prune_traces():
 # --------------------------------------------------------------------------- #
 # API
 # --------------------------------------------------------------------------- #
-
-@router.get("/api/roster")
-def api_roster():
-    """Names for the input's datalist. The page is a static file, so it cannot
-    have the roster templated into it the way the accommodation form does."""
-    return {"players": known_players()}
-
 
 @router.get("/api/board")
 def api_board(view: str = "alltime", player: str = "", limit: int = BOARD_LIMIT):

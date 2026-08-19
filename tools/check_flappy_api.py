@@ -148,26 +148,31 @@ for attack in ["../main.py", "..%2fmain.py", "../../etc/passwd", "%2e%2e/main.py
           status == 404 or b"FastAPI" not in raw, "status %s" % status)
 
 # --------------------------------------------------------------------------
-print("\nroster")
-status, data = get_json("/flappy/api/roster")
-check("GET /flappy/api/roster", status == 200 and "Andrew Siebert" in data["players"],
-      str(data))
+print("\nthe roster endpoint is gone")
+status, _, _ = request("/flappy/api/roster")
+check("GET /flappy/api/roster is 404", status == 404, "status %s" % status)
 
 # --------------------------------------------------------------------------
-print("\nname binding")
+print("\nname handling")
+# Names are free text. Nothing is checked against the real roster, so a name
+# nobody has ever heard of is accepted. Sanitising still applies. No runs
+# exist yet at this point, so the typed spelling is what comes back.
 cases = [
     ("Andrew Siebert", "Andrew Siebert"),
-    ("andrew siebert", "Andrew Siebert"),
     ("  Andrew   Siebert ", "Andrew Siebert"),
+    ("Zxqv Nonsense", "Zxqv Nonsense"),
+    ("  lower case   person ", "lower case person"),
 ]
 for typed, expect in cases:
     status, data = get_json("/flappy/api/player/" + urllib.request.quote(typed))
-    check('"%s" resolves to "%s"' % (typed, expect),
-          status == 200 and data.get("player") == expect, str(data))
+    check('"%s" is accepted as "%s"' % (typed, expect),
+          status == 200 and data.get("ok") is True and data.get("player") == expect,
+          str(data))
 
 status, data = get_json("/flappy/api/player/Zxqv%20Nonsense")
-check("unknown name is rejected", status == 404 and "No leaderboard player" in
-      str(data.get("error")), str(data))
+check("a name with no runs is accepted, not rejected",
+      status == 200 and data.get("ok") is True and data.get("runs") == 0,
+      str(data))
 
 # --------------------------------------------------------------------------
 print("\nscore submission")
@@ -188,9 +193,9 @@ def post_score(player, score, duration_ms=None, seed=12345, flaps=None, age=180)
     })
 
 
-status, raw, _ = post_score("andrew siebert", 12)
+status, raw, _ = post_score("  Andrew   Siebert ", 12)
 data = json.loads(raw)
-check("posts and canonicalises the name",
+check("posts and sanitises the name",
       status == 200 and data["player"] == "Andrew Siebert", str(data))
 check("reports a personal best", data.get("personal_best") is True, str(data))
 check("reports a rank", data.get("rank") == 1, str(data))
@@ -208,16 +213,21 @@ check("a worse run is stored but is not a personal best",
       status == 200 and data.get("personal_best") is False, str(data))
 
 status, raw, _ = post_score("Nobody At All", 5)
-check("unknown player is refused", status == 400, raw[:200])
+data = json.loads(raw)
+check("a name that is not on the real roster is accepted",
+      status == 200 and data["player"] == "Nobody At All", raw[:200])
 
 status, raw, _ = post_score("Andrew Siebert", 0)
 check("a zero run is refused", status == 400, raw[:200])
+
+status, raw, _ = post_score("   ", 5)
+check("a blank name is still refused", status == 400, raw[:200])
 
 # --------------------------------------------------------------------------
 print("\nboards")
 for view in ["alltime", "season", "today", "volume"]:
     status, data = get_json("/flappy/api/board?view=" + view)
-    ok = status == 200 and len(data["rows"]) == 3
+    ok = status == 200 and len(data["rows"]) == 4
     check("view %s has one row per player" % view, ok, str(data)[:300])
     if ok:
         scores = [r["score"] for r in data["rows"]]
@@ -265,7 +275,16 @@ check("summary reports a rank per view",
 conn = _db()
 n = conn.execute("SELECT COUNT(*) FROM flappy_runs").fetchone()[0]
 conn.close()
-check("every run is stored, not just personal bests", n == 7, "rows %d" % n)
+check("every run is stored, not just personal bests", n == 8, "rows %d" % n)
+
+# Free-text names still resolve to one identity per spelling-insensitive key,
+# and the summary reports the spelling the board shows rather than the one in
+# the URL.
+status, data = get_json("/flappy/api/player/ANDREW%20SIEBERT")
+check("a different spelling is the same player",
+      status == 200 and data["runs"] == 3 and data["best"] == 33, str(data)[:300])
+check("the summary reports the stored spelling",
+      data.get("player") == "Andrew Siebert", str(data.get("player")))
 
 # --------------------------------------------------------------------------
 print("\nplausibility and rate limiting")
@@ -355,6 +374,14 @@ check("leaderboard.json is untouched", before[0] == after[0])
 check("history.json is untouched", before[1] == after[1])
 check("roster content is unchanged",
       json.load(open(state, encoding="utf-8")) == before_state)
+
+# Stronger than "does not write it": since names are free text, the module has
+# no reason to open the real leaderboard state file at all. The docstring still
+# mentions the file by name, so this looks for the code references.
+flappy_src = open(os.path.join(REPO, "app", "flappy.py"), encoding="utf-8").read()
+check("flappy.py never reads the leaderboard state file",
+      "ZS_STATE_FILE" not in flappy_src and "STATE_FILE" not in flappy_src,
+      "found a reference to the real state file")
 
 db = os.path.join(DATA, "zipscores_buffer.db")
 import sqlite3
