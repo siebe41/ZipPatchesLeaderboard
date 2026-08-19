@@ -110,10 +110,15 @@ export function createRenderer(canvas, atlas) {
       ctx.drawImage(atlas.image, f.x, f.y, f.w, h, bodyX, y, f.w, h);
     }
 
-    // The version label sits above the top cap. The gap range guarantees at
+    // The version label sits above the top cap, on a plate so it reads against
+    // the tile art rather than fighting with it. The gap range guarantees at
     // least 34 px of column up there, so it always has somewhere to live.
-    atlas.text(ctx, ob.version, bodyX + CONFIG.tileW / 2, top - CONFIG.capH - 11,
-      { align: 'center', color: '#9fb6d6' });
+    const labelY = top - CONFIG.capH - 12;
+    const labelW = atlas.textWidth(ob.version) + 6;
+    ctx.fillStyle = 'rgba(12, 20, 38, 0.88)';
+    ctx.fillRect(Math.round(bodyX + (CONFIG.tileW - labelW) / 2), labelY - 2, labelW, 11);
+    atlas.text(ctx, ob.version, bodyX + CONFIG.tileW / 2, labelY + 1,
+      { align: 'center', color: '#8fd0ff' });
   }
 
   function drawDuck(y, angle, frame) {
