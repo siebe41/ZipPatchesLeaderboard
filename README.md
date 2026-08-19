@@ -244,9 +244,18 @@ python tools/flappy_admin.py clear                      # every run, asks first
 python tools/flappy_admin.py clear --player "Some Name" # one player
 ```
 
-`clear` only ever deletes from the `flappy_` tables. On the server the database is
-`/home/zipscores_buffer.db` inside the container, so either run it there or point `--db` at
-`./data/zipscores_buffer.db` on the host.
+On the server that script is not available, because the compose file mounts `./app` and
+`./data` and nothing else. The deletion itself lives in `flappy.clear_board()` for that
+reason, so it can be reached from inside the container:
+
+```
+docker exec <container> python -c "import sys; sys.path.insert(0, '/app'); import flappy; print(flappy.clear_board())"
+```
+
+Add a name to clear one player: `flappy.clear_board('Some Name')`. Either route only ever
+deletes from the `flappy_` tables. Keeping the statement in the module rather than in a
+command to copy is deliberate, since the alternative is hand typing `DELETE` against the same
+database file the real leaderboard's buffer lives in.
 
 ### Tuning
 

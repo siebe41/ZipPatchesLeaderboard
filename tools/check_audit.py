@@ -169,6 +169,24 @@ def main():
     again = flappy.audit_legacy_runs()
     check("nothing re-judged", again["checked"], 0)
 
+    print("\nclearing the board")
+    # Reachable from inside the container, where tools/ does not exist, so it is
+    # worth proving the module level entry point rather than only the script.
+    before = len(flappy._rows("SELECT id FROM flappy_runs"))
+    result = flappy.clear_board("Player 0")
+    check("clearing one player deletes only that player", result["deleted"], 1)
+    check("the rest are still there",
+          len(flappy._rows("SELECT id FROM flappy_runs")), before - 1)
+    check("an unknown name deletes nothing",
+          flappy.clear_board("Nobody Here")["deleted"], 0)
+
+    result = flappy.clear_board()
+    check("clearing everything empties the board", result["deleted"], before - 1)
+    check("no runs left", flappy._rows("SELECT id FROM flappy_runs"), [])
+    check("no sessions left", flappy._rows("SELECT id FROM flappy_sessions"), [])
+    check("the board reads empty rather than erroring",
+          flappy.board_rows("alltime"), [])
+
     print()
     if FAILED:
         print("%d check(s) failed" % len(FAILED))

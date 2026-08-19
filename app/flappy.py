@@ -1176,6 +1176,38 @@ def audit_legacy_runs():
     return {"checked": len(pending), "voided": voided}
 
 
+def clear_board(player=None):
+    """Delete runs. Everything, or one player.
+
+    This lives here rather than only in the admin script because the admin
+    script is not in the container: the compose file mounts ./app and ./data and
+    nothing else. Clearing the board on the server therefore has to go through
+    this module, and the alternative is someone hand typing DELETE against the
+    database the real leaderboard's buffer also lives in. Keeping the statement
+    here is what makes "only flappy_ tables are touched" a property of the code
+    instead of a promise about a copied command.
+
+        docker exec <container> python -c \\
+            "import sys; sys.path.insert(0, '/app'); \\
+             import flappy; print(flappy.clear_board())"
+    """
+    if player:
+        key = name_key(player)
+        if not key:
+            return {"deleted": 0, "player": player}
+        before = _rows("SELECT COUNT(*) AS n FROM flappy_runs WHERE player_key = ?",
+                       (key,))[0]["n"]
+        _write("DELETE FROM flappy_runs WHERE player_key = ?", (key,))
+        log.info("flappy: cleared %d runs for %s", before, player)
+        return {"deleted": before, "player": player}
+
+    before = _rows("SELECT COUNT(*) AS n FROM flappy_runs")[0]["n"]
+    _write("DELETE FROM flappy_runs")
+    _write("DELETE FROM flappy_sessions")
+    log.info("flappy: cleared the board, %d runs deleted", before)
+    return {"deleted": before, "player": None}
+
+
 # --------------------------------------------------------------------------- #
 # Rate limiting
 # --------------------------------------------------------------------------- #

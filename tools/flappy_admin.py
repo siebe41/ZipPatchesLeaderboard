@@ -204,19 +204,19 @@ def cmd_clear(fp, args):
     """Wipe the board.
 
     Nothing else in this tool destroys data, so this asks first unless told not
-    to. It only ever touches flappy_ tables, which is the whole isolation
-    promise: the real leaderboard files are not SQLite and are not opened here.
+    to. The deletion itself lives in flappy.clear_board(), so the same statement
+    runs whether it is invoked from here or inside the container, where this
+    script does not exist.
     """
     if args.player:
-        key = args.player.strip().lower()
+        key = fp.name_key(args.player)
         rows = fp._rows("SELECT COUNT(*) AS n, MAX(score) AS best FROM flappy_runs "
                         "WHERE player_key = ?", (key,))
-        n, best = rows[0]["n"], rows[0]["best"]
         what = 'every run by "%s"' % args.player
     else:
         rows = fp._rows("SELECT COUNT(*) AS n, MAX(score) AS best FROM flappy_runs")
-        n, best = rows[0]["n"], rows[0]["best"]
         what = "every run by everyone"
+    n, best = rows[0]["n"], rows[0]["best"]
 
     if not n:
         print("nothing to clear")
@@ -229,12 +229,8 @@ def cmd_clear(fp, args):
             print("left alone")
             return
 
-    if args.player:
-        fp._write("DELETE FROM flappy_runs WHERE player_key = ?", (key,))
-    else:
-        fp._write("DELETE FROM flappy_runs")
-        fp._write("DELETE FROM flappy_sessions")
-    print("cleared %d runs" % n)
+    result = fp.clear_board(args.player or None)
+    print("cleared %d runs" % result["deleted"])
 
 
 def main():
