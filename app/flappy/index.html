@@ -26,8 +26,9 @@
 
 <footer class="hud">
   <label for="player">Player</label>
-  <input id="player" autocomplete="off" autocapitalize="words"
+  <input id="player" list="player-list" autocomplete="off" autocapitalize="words"
          spellcheck="false" placeholder="Your name" maxlength="60">
+  <datalist id="player-list"></datalist>
   <button id="post" type="button">Post run</button>
   <span id="status" class="status"></span>
   <span id="seed" class="seed"></span>

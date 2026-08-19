@@ -131,8 +131,9 @@ leaderboard. It shares the app and the data volume and nothing else.
 Flappy Duck never writes to `leaderboard.json` or `history.json`. It never touches a daily
 rank, penalty, streak, excused day, weekly total, or win counter, and it adds no job to the
 scheduler. The only thing it borrows from the real leaderboard is the roster, read-only, so
-that a submitted name can be matched to a real player. It reuses the same closest-match
-resolution the accommodation form uses, so `dorie` and `Andrew Siebrt` both land correctly.
+that a submitted name can be matched to a real player. Flappy score submissions only
+accept exact roster names (case-insensitive, whitespace-normalized) and reject freeform
+names that are not on the board.
 
 All server code lives in `app/flappy.py`. `app/main.py` gains exactly two lines: the import
 and the `include_router` call. Nothing else in it changes, which keeps the live scoring path
@@ -347,4 +348,3 @@ Immediate client-side workaround: pin IPv4 in `hosts`
 SCPs it to the NAS, then runs `docker-compose up -d` on the Synology. With the
 no-build compose, `--build` is unnecessary (the script's command is harmless either
 way since there is no `build:` directive).
-

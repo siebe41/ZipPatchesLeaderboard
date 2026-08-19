@@ -20,6 +20,7 @@ const RESTART_LOCKOUT_MS = 650; // stops the death tap restarting the run
 const el = {
   canvas: document.getElementById('game'),
   player: document.getElementById('player'),
+  playerList: document.getElementById('player-list'),
   post: document.getElementById('post'),
   status: document.getElementById('status'),
   seed: document.getElementById('seed'),
@@ -58,6 +59,35 @@ let renderer = null;
 let audio = null;
 let lastFrameMs = 0;
 let announcedBadge = 0;
+let rosterNames = [];
+
+function nameKey(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function isKnownPlayer(name) {
+  if (!rosterNames.length) return true;
+  const key = nameKey(name);
+  return !!key && rosterNames.some((p) => nameKey(p) === key);
+}
+
+async function loadRoster() {
+  try {
+    const res = await fetch(API + 'roster');
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !Array.isArray(data.players)) return;
+    rosterNames = data.players.filter((p) => typeof p === 'string' && p.trim());
+    if (!el.playerList) return;
+    el.playerList.textContent = '';
+    for (const name of rosterNames) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      el.playerList.appendChild(opt);
+    }
+  } catch (err) {
+    rosterNames = [];
+  }
+}
 
 // --------------------------------------------------------------------------
 // Persisted odds and ends
@@ -136,6 +166,11 @@ async function submitRun() {
     panelLines([{ text: 'ENTER YOUR NAME BELOW', color: '#8fd0ff' },
       { text: 'TO POST THIS RUN' }]);
     setStatus('Enter your name below to post this run to the board.', '');
+    return;
+  }
+  if (!isKnownPlayer(player)) {
+    panelLines([{ text: 'NOT POSTED', color: '#e94560' }]);
+    setStatus('Use your exact leaderboard name to post this run.', 'bad');
     return;
   }
   if (sim.score <= 0) {
@@ -364,6 +399,7 @@ async function boot() {
   view.best = parseInt(readStore(CONFIG.bestKey, '0'), 10) || 0;
   view.muted = readStore(CONFIG.mutedKey, '1') !== '0';
   el.player.value = readStore(CONFIG.playerKey, '');
+  await loadRoster();
 
   audio = createAudio(view.muted);
   try {
