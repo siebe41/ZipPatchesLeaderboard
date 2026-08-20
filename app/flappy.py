@@ -1208,6 +1208,63 @@ def clear_board(player=None):
     return {"deleted": before, "player": None}
 
 
+def db_info():
+    """Which database the container is really using, and what is in it.
+
+    Worth having because the board and a downloaded copy of the file can
+    honestly disagree, and the reasons are not guessable from outside. A deploy
+    here is "upload files and restart" from File Station with no shell in the
+    normal path, so the person asking usually cannot go and look. The mundane
+    causes are a ZS_BUFFER_DB override, a bind mount pointing at a different
+    host folder than the one being browsed, and copying a WAL-mode database
+    without its -wal sidecar, which yields a file genuinely missing the newest
+    tables rather than an obviously broken one.
+
+    The table list is the useful part: seeing the zipscores tables and the
+    flappy_ tables together proves it is the one shared file, and the size and
+    timestamp identify which copy you are holding.
+
+    Reports no player data, so it is safe to leave open.
+    """
+    path = os.path.abspath(BUFFER_DB)
+    folder = os.path.dirname(path)
+    exists = os.path.exists(path)
+
+    info = {
+        "path": path,
+        "overridden_by_env": "ZS_BUFFER_DB" in os.environ,
+        "exists": exists,
+        "bytes": os.path.getsize(path) if exists else 0,
+        "modified": _utc_stamp(datetime.fromtimestamp(os.path.getmtime(path), timezone.utc))
+                    if exists else None,
+        # A copy taken without these is a copy missing whatever they still hold.
+        "sidecars": [s for s in ("-wal", "-shm", "-journal")
+                     if os.path.exists(path + s)],
+        # Identifies the folder without listing anything that is not already
+        # documented in docker-compose.yml.
+        "beside_leaderboard_json": os.path.exists(os.path.join(folder, "leaderboard.json")),
+        "beside_history_json": os.path.exists(os.path.join(folder, "history.json")),
+    }
+
+    try:
+        info["journal_mode"] = _rows("PRAGMA journal_mode")[0]["journal_mode"]
+        info["tables"] = [r["name"] for r in _rows(
+            "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")]
+        info["runs"] = _rows("SELECT COUNT(*) AS n FROM flappy_runs")[0]["n"]
+        info["on_the_board"] = _rows(
+            "SELECT COUNT(*) AS n FROM flappy_runs WHERE verified = 1")[0]["n"]
+        info["held_back"] = _rows(
+            "SELECT COUNT(*) AS n FROM flappy_runs WHERE verified = 0")[0]["n"]
+        # Non-zero here means the audit has runs it has never looked at, which
+        # is the state that made "it did not clear the old scores" possible.
+        info["unjudged"] = _rows(
+            "SELECT COUNT(*) AS n FROM flappy_runs WHERE flags IS NULL")[0]["n"]
+    except sqlite3.Error as exc:
+        info["error"] = str(exc)
+
+    return info
+
+
 # --------------------------------------------------------------------------- #
 # Rate limiting
 # --------------------------------------------------------------------------- #
@@ -1359,6 +1416,12 @@ def api_player(name: str):
     if not summary.get("ok"):
         return _reject(summary.get("error", "Unknown player."), status=404)
     return summary
+
+
+@router.get("/api/health")
+def api_health():
+    """Answers "which database is this actually using" without a shell."""
+    return db_info()
 
 
 # --------------------------------------------------------------------------- #
