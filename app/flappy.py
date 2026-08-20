@@ -1246,6 +1246,17 @@ def db_info():
         "beside_history_json": os.path.exists(os.path.join(folder, "history.json")),
     }
 
+    # The case that looks identical from outside to every other cause, and is
+    # the only one where the file is genuinely not on the NAS at all: if /home
+    # was never bind mounted, this is the container's own writable layer. It
+    # survives restarts, so nothing looks wrong, but the folder being browsed on
+    # the NAS is then a different directory that the app has never written to.
+    # A different device number than / is what a real mount looks like.
+    try:
+        info["folder_is_a_mount"] = os.stat(folder).st_dev != os.stat(os.sep).st_dev
+    except OSError:
+        info["folder_is_a_mount"] = None
+
     try:
         info["journal_mode"] = _rows("PRAGMA journal_mode")[0]["journal_mode"]
         info["tables"] = [r["name"] for r in _rows(

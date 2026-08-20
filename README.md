@@ -256,6 +256,18 @@ path, its size and timestamp, any `-wal` sidecar, every table in it, and how man
 the board, held back, or never judged. That last count is the one that matters after a deploy:
 it should be zero, because the audit runs at import.
 
+`folder_is_a_mount` is the field to read first when a downloaded copy of the database disagrees
+with the board. If it is false, `/home` was never bind mounted, the database is inside the
+container's own writable layer, and there is no copy of it on the NAS to download. That
+survives restarts, so nothing looks broken, but the folder being browsed is a directory the app
+has never written to.
+
+Two other things it settles. `buffer`, `accommodations`, and `proofs` come from `main.py` and
+`flappy_runs` and `flappy_sessions` come from `flappy.py`, and both open the same path in the
+same process, so a file holding one set without the other cannot be the live one and is a stale
+copy. And a `-wal` sidecar means a copy taken without it is missing whatever that file still
+holds, which can include whole tables.
+
 It exists because the board and a downloaded copy of the file can honestly disagree, and the
 reasons are not guessable from outside. A `ZS_BUFFER_DB` override, a bind mount pointing
 somewhere other than the folder being browsed, or a WAL-mode database copied without its `-wal`
