@@ -94,11 +94,17 @@ def cmd_show(fp, args):
         print("  real time   %.1f seconds between the seed and the submission"
               % (r["elapsed_ms"] / 1000.0))
 
-    if not r["flaps"]:
+    trace, stored = fp.decode_trace(r["flaps"])
+    if not stored:
         print("  inputs      the trace has been pruned, so there is nothing to replay")
         return
+    if trace is None:
+        print("  inputs      stored, but not readable as a trace")
+        return
+    if not trace:
+        print("  inputs      none, so this run never flapped")
+        return
 
-    trace = json.loads(r["flaps"])
     sim = fp.replay(r["seed"], trace)
     print("  inputs      %d" % len(trace))
     print("  replay      %d patches over %.1f seconds%s"
@@ -194,6 +200,39 @@ def cmd_recheck(fp, args):
     print("looked at %d runs, changed %d" % (len(rows), changed))
 
 
+def cmd_clear(fp, args):
+    """Wipe the board.
+
+    Nothing else in this tool destroys data, so this asks first unless told not
+    to. The deletion itself lives in flappy.clear_board(), so the same statement
+    runs whether it is invoked from here or inside the container, where this
+    script does not exist.
+    """
+    if args.player:
+        key = fp.name_key(args.player)
+        rows = fp._rows("SELECT COUNT(*) AS n, MAX(score) AS best FROM flappy_runs "
+                        "WHERE player_key = ?", (key,))
+        what = 'every run by "%s"' % args.player
+    else:
+        rows = fp._rows("SELECT COUNT(*) AS n, MAX(score) AS best FROM flappy_runs")
+        what = "every run by everyone"
+    n, best = rows[0]["n"], rows[0]["best"]
+
+    if not n:
+        print("nothing to clear")
+        return
+
+    print("about to delete %d run%s (%s), best score %s"
+          % (n, "" if n == 1 else "s", what, best))
+    if not args.yes:
+        if input("type 'clear' to go ahead: ").strip() != "clear":
+            print("left alone")
+            return
+
+    result = fp.clear_board(args.player or None)
+    print("cleared %d runs" % result["deleted"])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -231,6 +270,11 @@ def main():
 
     p = sub.add_parser("recheck", help="judge every run again, keeping manual decisions")
     p.set_defaults(fn=cmd_recheck)
+
+    p = sub.add_parser("clear", help="delete runs and start the board over")
+    p.add_argument("--player", default="", help="only this player, rather than everyone")
+    p.add_argument("--yes", action="store_true", help="skip the confirmation")
+    p.set_defaults(fn=cmd_clear)
 
     args = ap.parse_args()
     if not os.path.exists(args.db):

@@ -45,16 +45,30 @@ def check(name, got, want):
         FAILED.append(name)
 
 
-def insert(player, seed, flaps, score=None, trace=True):
-    """Write a row in the shape the previous release wrote them."""
+def insert(player, seed, flaps, score=None, trace=True, encoding="legacy"):
+    """Write a row in the shape the previous release wrote them.
+
+    The encoding matters more than it looks. The shipped release stored the
+    trace twice, because clean_trace() returned json.dumps(list) and the insert
+    called json.dumps() on that string again. A fixture that writes a plain JSON
+    array is testing a shape no real row has, which is how the first version of
+    this audit passed every test here and still cleared nothing on the real
+    board. "legacy" is what is actually in the database today.
+    """
     sim = flappy.replay(seed, flaps)
     row_score = sim.score if score is None else score
+    if not trace:
+        stored = None
+    elif encoding == "legacy":
+        stored = json.dumps(json.dumps(flaps))
+    else:
+        stored = json.dumps(flaps)
     flappy._write(
         "INSERT INTO flappy_runs "
         "(player, player_key, score, seed, duration_ms, flaps, created_at, verified) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
         (player, flappy.name_key(player), row_score, seed, sim.duration_ms(),
-         json.dumps(flaps) if trace else None, flappy._utc_stamp()),
+         stored, flappy._utc_stamp()),
     )
     return row_score
 
@@ -101,9 +115,17 @@ def main():
            score=14, trace=False)
     insert("Never Started", 13, [])
 
+    # A score with an empty trace still stored next to it. Pruning empties the
+    # column rather than writing "[]", so this is a number that was typed.
+    insert("Made It Up", 12345, [], score=250)
+
+    # The same forged run written in the encoding the current code uses, so both
+    # shapes are covered rather than whichever one happens to be in the database.
+    insert("Solver Current Shape", forged_seed, forged, encoding="current")
+
     print("\naudit")
     result = flappy.audit_legacy_runs()
-    check("every row judged", result["checked"], 6)
+    check("every row judged", result["checked"], 8)
     check("nothing left unjudged",
           flappy._rows("SELECT COUNT(*) AS n FROM flappy_runs WHERE flags IS NULL")[0]["n"], 0)
 
@@ -111,6 +133,9 @@ def main():
     verified, flags = flags_of("Offline Solver")
     check("computed run does not count", verified, 0)
     check("computed run says why", "machine_timing" in (flags or []), True)
+
+    verified, flags = flags_of("Solver Current Shape")
+    check("the same run in the current encoding is also caught", verified, 0)
 
     for i in range(2):
         verified, flags = flags_of("Player %d" % i)
@@ -128,16 +153,39 @@ def main():
     verified, _ = flags_of("Never Started")
     check("empty run is kept", verified, 1)
 
+    verified, flags = flags_of("Made It Up")
+    check("a score with no inputs does not count", verified, 0)
+    check("and it says why", flags, ["scored_without_flapping"])
+
     print("\nboard")
     names = [r["player"] for r in flappy.board_rows("alltime")]
     check("board excludes the solver", "Offline Solver" in names, False)
     check("board excludes the editor", "Score Editor" in names, False)
+    check("board excludes the made up score", "Made It Up" in names, False)
     check("board keeps the players", sorted(n for n in names if n.startswith("Player")),
           ["Player 0", "Player 1"])
 
     print("\nrerun is a no-op")
     again = flappy.audit_legacy_runs()
     check("nothing re-judged", again["checked"], 0)
+
+    print("\nclearing the board")
+    # Reachable from inside the container, where tools/ does not exist, so it is
+    # worth proving the module level entry point rather than only the script.
+    before = len(flappy._rows("SELECT id FROM flappy_runs"))
+    result = flappy.clear_board("Player 0")
+    check("clearing one player deletes only that player", result["deleted"], 1)
+    check("the rest are still there",
+          len(flappy._rows("SELECT id FROM flappy_runs")), before - 1)
+    check("an unknown name deletes nothing",
+          flappy.clear_board("Nobody Here")["deleted"], 0)
+
+    result = flappy.clear_board()
+    check("clearing everything empties the board", result["deleted"], before - 1)
+    check("no runs left", flappy._rows("SELECT id FROM flappy_runs"), [])
+    check("no sessions left", flappy._rows("SELECT id FROM flappy_sessions"), [])
+    check("the board reads empty rather than erroring",
+          flappy.board_rows("alltime"), [])
 
     print()
     if FAILED:

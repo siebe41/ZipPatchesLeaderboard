@@ -1060,35 +1060,74 @@ def read_trace(raw):
 # Runs with no trace left to check are kept. They are unjudgeable rather than
 # suspect, and throwing away honest history to be seen doing something about a
 # forgery would be the worse trade.
+#
+# Two shapes of stored trace have to be read here. The release that shipped the
+# game encoded it twice, because clean_trace() returned json.dumps(list) and the
+# insert called json.dumps() on that string again, so every row written before
+# this release holds a JSON string containing a JSON array. Reading only the
+# current shape would quietly file the entire existing board under "no trace"
+# and clear nothing, which is exactly what happened the first time.
 
 LEGACY_AUDIT_LIMIT = 20000
 
 
+def decode_trace(raw_trace):
+    """Read a stored trace in either encoding.
+
+    Returns (ticks, stored). ticks is None when there is nothing readable.
+    stored is False only when the column is empty, which is what pruning leaves
+    behind and is the one case that means "cannot be judged" rather than "did
+    not happen".
+    """
+    if raw_trace is None or raw_trace == "":
+        return None, False
+
+    value = raw_trace
+    for _ in range(2):          # one hop for the current shape, two for legacy
+        if not isinstance(value, str):
+            break
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError):
+            return None, True
+
+    if not isinstance(value, list):
+        return None, True
+    return value, True
+
+
 def audit_run(seed, claimed_score, raw_trace):
     """Judge one stored run. Returns (verified, flags)."""
-    try:
-        raw = json.loads(raw_trace) if raw_trace else []
-    except (ValueError, TypeError):
-        raw = None
+    raw, stored = decode_trace(raw_trace)
 
-    if raw is None or not isinstance(raw, list):
+    if not stored:
+        # Pruning clears the column, so there is nothing left to test this
+        # against and it keeps the benefit of the doubt.
         return 1, ["legacy_no_trace"]
+
+    if raw is None:
+        return 0, ["unreadable_trace"]
+
     if not raw:
-        # Either a run that never flapped, or one whose trace has been pruned.
-        # A run worth points had to flap, so only the pruned case reaches here
-        # with a score, and there is nothing left to test it against.
-        return 1, ["legacy_no_trace"]
-    if len(raw) >= MAX_FLAP_TRACE:
-        # Trimmed on the way in, so the tail of the run is missing and a replay
-        # would under-count it through no fault of the player.
-        return 1, ["legacy_trace_trimmed"]
+        # An empty trace that is still stored is not a pruned run, because
+        # pruning empties the column rather than writing "[]". A run cannot
+        # score without flapping, so a score here was typed, not played.
+        if claimed_score > 0:
+            return 0, ["scored_without_flapping"]
+        return 1, []
 
-    flaps, error = read_trace(raw)
+    flaps, error = read_trace(raw[:MAX_FLAP_TRACE])
     if error:
-        return 0, ["replay_mismatch"]
+        return 0, ["unreadable_trace"]
 
     sim = replay(seed, flaps)
-    if sim.score != claimed_score:
+
+    # A trace at the cap was trimmed on the way in, so the tail of the run is
+    # missing and the replay will legitimately fall short of the recorded score.
+    # The timing of what survives is still worth reading, so the score check is
+    # skipped rather than the whole run being waved through.
+    trimmed = len(raw) >= MAX_FLAP_TRACE
+    if not trimmed and sim.score != claimed_score:
         return 0, ["replay_mismatch"]
 
     # The clock checks need a session, and these runs predate sessions, so only
@@ -1105,6 +1144,9 @@ def audit_run(seed, claimed_score, raw_trace):
         flags.append("flap_rate")
     if stats["short"] > MAX_SHORT_GAPS:
         flags.append("double_inputs")
+    if trimmed and not flags:
+        flags.append("legacy_trace_trimmed")
+        return 1, flags
 
     return (0 if flags else 1), flags
 
@@ -1132,6 +1174,38 @@ def audit_legacy_runs():
     log.info("flappy: audited %d existing runs, %d no longer count",
              len(pending), voided)
     return {"checked": len(pending), "voided": voided}
+
+
+def clear_board(player=None):
+    """Delete runs. Everything, or one player.
+
+    This lives here rather than only in the admin script because the admin
+    script is not in the container: the compose file mounts ./app and ./data and
+    nothing else. Clearing the board on the server therefore has to go through
+    this module, and the alternative is someone hand typing DELETE against the
+    database the real leaderboard's buffer also lives in. Keeping the statement
+    here is what makes "only flappy_ tables are touched" a property of the code
+    instead of a promise about a copied command.
+
+        docker exec <container> python -c \\
+            "import sys; sys.path.insert(0, '/app'); \\
+             import flappy; print(flappy.clear_board())"
+    """
+    if player:
+        key = name_key(player)
+        if not key:
+            return {"deleted": 0, "player": player}
+        before = _rows("SELECT COUNT(*) AS n FROM flappy_runs WHERE player_key = ?",
+                       (key,))[0]["n"]
+        _write("DELETE FROM flappy_runs WHERE player_key = ?", (key,))
+        log.info("flappy: cleared %d runs for %s", before, player)
+        return {"deleted": before, "player": player}
+
+    before = _rows("SELECT COUNT(*) AS n FROM flappy_runs")[0]["n"]
+    _write("DELETE FROM flappy_runs")
+    _write("DELETE FROM flappy_sessions")
+    log.info("flappy: cleared the board, %d runs deleted", before)
+    return {"deleted": before, "player": None}
 
 
 # --------------------------------------------------------------------------- #
