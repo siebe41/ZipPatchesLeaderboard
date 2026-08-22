@@ -56,6 +56,9 @@ def logo():
 from flappy import router as flappy_router  # side game, isolated; see README
 app.include_router(flappy_router)
 
+from patchman import router as patchman_router  # side game, isolated; see README
+app.include_router(patchman_router)
+
 
 class Payload(BaseModel):
     date: str
