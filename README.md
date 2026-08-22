@@ -162,6 +162,7 @@ means changing your capitalization renames you rather than splitting you in two.
 | `POST /flappy/api/score` | Submit a finished run |
 | `GET /flappy/api/board` | Board data; `view` is `alltime`, `season`, `today`, or `volume` |
 | `GET /flappy/api/player/{name}` | One player's bests, totals, ranks, and recent runs |
+| `GET /flappy/api/health` | Which database the container opened, and what is in it |
 
 ### Tables
 
@@ -234,7 +235,54 @@ python tools/flappy_admin.py show 41           # one run, with its timing eviden
 python tools/flappy_admin.py void 41 --why "posted from a script"
 python tools/flappy_admin.py restore 41
 python tools/flappy_admin.py recheck           # judge everything again after moving a threshold
+python tools/flappy_admin.py info              # which database is in use, and what is in it
 ```
+
+### Running any of this on the server
+
+Everything in `tools/` is a workstation tool. A deploy here is uploading `app/` through File
+Station, so `tools/` never reaches the NAS at all, and the container mounts only `./app` and
+`./data` regardless. Point the commands above at a copy of the database with `--db`.
+
+The two things that genuinely have to happen on the server are therefore in `app/flappy.py`,
+which is the one folder that does get uploaded. Neither needs a shell:
+
+```
+GET /flappy/api/health
+```
+
+reports which database file the container actually opened, whether `ZS_BUFFER_DB` overrode the
+path, its size and timestamp, any `-wal` sidecar, every table in it, and how many runs are on
+the board, held back, or never judged. That last count is the one that matters after a deploy:
+it should be zero, because the audit runs at import.
+
+`folder_is_a_mount` is the field to read first when a downloaded copy of the database disagrees
+with the board. If it is false, `/home` was never bind mounted, the database is inside the
+container's own writable layer, and there is no copy of it on the NAS to download. That
+survives restarts, so nothing looks broken, but the folder being browsed is a directory the app
+has never written to.
+
+Two other things it settles. `buffer`, `accommodations`, and `proofs` come from `main.py` and
+`flappy_runs` and `flappy_sessions` come from `flappy.py`, and both open the same path in the
+same process, so a file holding one set without the other cannot be the live one and is a stale
+copy. And a `-wal` sidecar means a copy taken without it is missing whatever that file still
+holds, which can include whole tables.
+
+It exists because the board and a downloaded copy of the file can honestly disagree, and the
+reasons are not guessable from outside. A `ZS_BUFFER_DB` override, a bind mount pointing
+somewhere other than the folder being browsed, or a WAL-mode database copied without its `-wal`
+sidecar all produce a file that is missing tables rather than one that looks broken.
+
+For anything that changes data:
+
+```
+docker exec <container> python -c "import sys; sys.path.insert(0, '/app'); import flappy; print(flappy.clear_board())"
+```
+
+If you ever do want the full review tool on the server, upload `tools/flappy_admin.py` into
+`app/` and run `python /app/flappy_admin.py suspects`. It resolves `flappy.py` as a sibling of
+its own folder, and in the container that resolves to `/app` either way, so it needs no changes.
+FastAPI is already installed there, which it would not be on the NAS itself.
 
 To wipe the board and start over, which is the honest option when the scores already there
 are not worth sorting through:
@@ -244,9 +292,8 @@ python tools/flappy_admin.py clear                      # every run, asks first
 python tools/flappy_admin.py clear --player "Some Name" # one player
 ```
 
-On the server that script is not available, because the compose file mounts `./app` and
-`./data` and nothing else. The deletion itself lives in `flappy.clear_board()` for that
-reason, so it can be reached from inside the container:
+On the server, as above, that script is not there. The deletion itself lives in
+`flappy.clear_board()` for that reason, so it can be reached from inside the container:
 
 ```
 docker exec <container> python -c "import sys; sys.path.insert(0, '/app'); import flappy; print(flappy.clear_board())"

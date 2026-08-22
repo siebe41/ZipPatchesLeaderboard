@@ -15,9 +15,13 @@ any table that is not prefixed flappy_.
     python tools\\flappy_admin.py void 41 --why "posted from a script"
     python tools\\flappy_admin.py restore 41
     python tools\\flappy_admin.py recheck
+    python tools\\flappy_admin.py info
 
-Point it at a database with --db, or set ZS_BUFFER_DB. The default is the path
-the container uses, so run it inside the container or pass the path.
+This is a workstation tool. A deploy is an upload of app/, so tools/ never
+reaches the server: point it at a copy of the database with --db, or set
+ZS_BUFFER_DB. The default is the path the container uses, so on a dev box you
+almost always want --db. What has to be done on the server instead lives in
+flappy.py itself, as GET /flappy/api/health and flappy.clear_board().
 """
 from __future__ import annotations
 
@@ -233,6 +237,15 @@ def cmd_clear(fp, args):
     print("cleared %d runs" % result["deleted"])
 
 
+def cmd_info(fp, args):
+    """Which database this is, and what is in it."""
+    info = fp.db_info()
+    tables = info.pop("tables", [])
+    for key, value in info.items():
+        print("%-24s %s" % (key, value))
+    print("%-24s %s" % ("tables", ", ".join(tables) or "(none)"))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -275,6 +288,9 @@ def main():
     p.add_argument("--player", default="", help="only this player, rather than everyone")
     p.add_argument("--yes", action="store_true", help="skip the confirmation")
     p.set_defaults(fn=cmd_clear)
+
+    p = sub.add_parser("info", help="which database is in use, and what is in it")
+    p.set_defaults(fn=cmd_info)
 
     args = ap.parse_args()
     if not os.path.exists(args.db):
