@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#16213e">
+<meta name="description" content="PatchMan. Clear the backlog before the vulnerabilities clear you.">
+<meta property="og:title" content="PatchMan">
+<meta property="og:description" content="Clear the backlog before the vulnerabilities clear you.">
+<meta property="og:image" content="/patchman/static/share.png">
+<title>PatchMan</title>
+<link rel="icon" type="image/png" href="/patchman/static/favicon.png">
+<link rel="stylesheet" href="/patchman/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>PatchMan</h1>
+  <span class="tagline">Clear the backlog. Patch the threats.</span>
+  <span class="spacer"></span>
+  <a href="/patchman/board">Leaderboard</a>
+</header>
+
+<main class="stage">
+  <canvas id="game" width="432" height="560" aria-label="PatchMan game"></canvas>
+</main>
+
+<footer class="hud">
+  <ul class="legend" aria-label="The vulnerabilities">
+    <li title="Comes straight at you."><i style="background:#ff4d5e"></i>RCE</li>
+    <li title="Aims four tiles ahead of you."><i style="background:#ff8fd6"></i>XSS</li>
+    <li title="Pivots off RCE to flank you."><i style="background:#4fd6e8"></i>SQLI</li>
+    <li title="Bold at range, shy up close."><i style="background:#ffb03a"></i>0DAY</li>
+    <li class="hint">Grab a Patch My PC logo to make them patchable</li>
+  </ul>
+  <div class="controls">
+    <label for="player">Player</label>
+    <input id="player" autocomplete="off" autocapitalize="words"
+           spellcheck="false" placeholder="Your name" maxlength="60">
+    <button id="post" type="button">Post run</button>
+    <span id="status" class="status"></span>
+  </div>
+</footer>
+
+<script type="module" src="/patchman/static/game.mjs"></script>
+<noscript>
+  <p style="padding:16px;color:#e94560">PatchMan needs JavaScript.</p>
+</noscript>
+</body>
+</html>
