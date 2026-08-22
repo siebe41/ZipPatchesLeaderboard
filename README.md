@@ -23,8 +23,8 @@ automatically.
 
 Existing leaderboard endpoints are unchanged: `/ingest`, `/leaderboard`,
 `/history`, `/reset`, `/adjust`, `/`, `/player`. The accommodation and screenshot
-backfill pages are described further down, and the two side games, Flappy Duck
-and PatchMan, have their own sections.
+backfill pages are described further down, and the three side games, Flappy Duck,
+PatchMan and Patchaga, have their own sections.
 
 ### `POST /collect`
 
@@ -538,6 +538,139 @@ three in a triangle, and 0DAY has a matched pair.
 
 Sound is synthesized in the browser with WebAudio, so there are no audio files, and the game
 starts muted.
+
+## Patchaga (side game)
+
+`/patchaga` is a fixed shooter in the Galaga mould. A rubber duck at the bottom of the
+screen fires Patch My PC logos at a formation of bugs that peel off and dive at it. Clear a
+wave and the next one is worse. It shares the app and the data volume with everything else
+and nothing more, on the same terms as Flappy Duck: no `leaderboard.json`, no
+`history.json`, no scheduler job, no roster lookup, two lines in `app/main.py`, and every
+table it creates prefixed `patchaga_`.
+
+Names work exactly as they do in Flappy Duck, and for the same reasons.
+
+### Routes
+
+| Route | Purpose |
+| ----- | ------- |
+| `GET /patchaga` | The game |
+| `GET /patchaga/board` | The leaderboard, four views |
+| `GET /patchaga/static/*` | Game files, served from `app/patchaga/` |
+| `POST /patchaga/api/session` | Start a run and get the world to play it in |
+| `POST /patchaga/api/beat` | Progress ping while a run is in play |
+| `POST /patchaga/api/score` | Submit a finished run |
+| `GET /patchaga/api/board` | Board data; `view` is `alltime`, `season`, `today`, or `volume` |
+| `GET /patchaga/api/player/{name}` | One player's bests, totals, ranks, and recent runs |
+
+### The thing that makes this game hard to build
+
+The server replays every submission in Python. That only proves anything while the Python
+and the JavaScript agree to the last bit, and a shooter makes agreeing much harder than a
+side-scroller did, because bugs fly curved paths and curves want trigonometry.
+
+Two hazards, and both are solved by refusing to have the problem:
+
+- **Floating point drift.** Nothing in the simulation stores a float. Positions are
+  integers in sub-units, 64 of them to the pixel, and every division floors —
+  `Math.floor(a / b)` in JavaScript, `a // b` in Python. Rounding is written as
+  `floor(x + 0.5)` in both, because JavaScript's `Math.round` rounds halves up and Python's
+  `round` rounds them to even, so the two disagree on exactly the values a game hits most.
+- **Transcendental functions.** `Math.sin` and `math.sin` are not specified to agree, and in
+  practice they don't. So the simulation never calls one. Angles are integer steps around a
+  circle of 1024, and sine comes from a table built at import with integer-only arithmetic
+  (Bhaskara I's approximation, evaluated so every operand stays a positive integer small
+  enough to be exact in a double). Both languages build the same table from the same
+  expression and get the same 1024 numbers.
+
+`tools/check_patchaga_parity.py` is what keeps this honest. It runs both engines over the
+same traces and compares a digest of the entire world on **every tick**, so a disagreement
+is reported as the first tick it happened on rather than as a wrong final score. Half the
+cases are random input and half are played by the bot, deliberately: random input dies in
+wave 1 and never reaches a capture, a merged duck or a regression sweep, and the bot reaches
+all three but never wanders into an ugly corner. Run it after touching the simulation, and
+believe nothing until it passes:
+
+```
+python tools/check_patchaga_parity.py --cases 24 --ticks 60000 --verbose
+```
+
+### Keeping the board honest
+
+The same argument as Flappy Duck: replay proves a trace is self-consistent, not that a
+person produced it. The world is server-issued, the score is whatever the replay says, and
+the clock is anchored by heartbeats.
+
+The hand check is where this game had to differ, and the difference is worth understanding
+before touching it. Patchaga's client auto-repeats while fire is held, and that repeat lands
+on the cooldown to the tick every single time. Measuring the fire stream for regularity
+would therefore flag every honest player, because the regularity is the client's, not the
+player's. So:
+
+- **Steering is judged on its timing.** Rate, interval spread, and double presses all read
+  the steering stream only.
+- **Firing is judged on its result.** A solver picks the tick that hits; a hand does not.
+  The check is the hit rate over a run with enough shots to have one.
+
+The accuracy threshold sits at 92%, which is high on purpose. There is no corpus of human
+runs to calibrate against, and the reference bot — which aims perfectly but only fires when
+a shot is available — lands between 38% and 75%, median 56%. A true solver would sit near
+100%. Guessing low would reject honest players to catch nobody, so the threshold is placed
+where only a search could reach.
+
+The timing thresholds are measured rather than guessed, using the bot's two modes as a
+bracket. Its default mode re-decides direction every tick, and across six runs produced 3.8
+to 12.4 steers per second with 42% to 66% of gaps landing on one value. Its `--human` mode
+adds a reaction delay and a dead zone, and produced 1.0 to 1.4 steers per second with 4% to
+9%. The limits sit in the gap between them: 6 steers per second, and a 0.35 modal share.
+
+One subtlety, because it is the kind of thing that is easy to get wrong and hard to notice.
+Moving from left to right is one motion of one hand, but a browser reports it as two events
+microseconds apart — the left key coming up, then the right key going down. The client
+records both faithfully, so the trace holds a neutral and a direction on the same tick.
+Counted as two inputs that reads as a hand pressing twice in under a hundredth of a second,
+which is what `double_inputs` exists to catch, and it would have caught every player who
+ever changed direction quickly. So `steering_codes()` drops the release half of a roll before
+any statistic is computed. It removes the neutral and never the direction that follows it, so
+a solver cannot use it to launder its rate: its presses stay on the ticks it made them on.
+This was found by playing the game in a browser and watching an honest run get refused.
+
+Runs that fail are stored with `counted: false` and the reason, and reviewed by hand:
+
+```
+python tools/patchaga_admin.py suspects          # what was held back, and why
+python tools/patchaga_admin.py show 41           # one run, with its timing and aim evidence
+python tools/patchaga_admin.py void 41 --why "posted from a script"
+python tools/patchaga_admin.py restore 41
+python tools/patchaga_admin.py recheck           # judge everything again after moving a threshold
+python tools/patchaga_admin.py clear             # wipe the board, asks first
+```
+
+`patchaga.clear_board()` exists for the same reason `flappy.clear_board()` does — the admin
+script is not in the container.
+
+### Tuning
+
+Every constant that affects how the game feels lives in `app/patchaga/config.mjs`, mirrored
+into `app/patchaga.py`. Change one and the two engines disagree, so the parity gate is not
+optional after a tuning pass.
+
+| Command | What it proves |
+| ------- | -------------- |
+| `node tools/patchaga_bot.mjs 30 --verbose` | The game is playable and how far a competent player gets |
+| `node tools/patchaga_bot.mjs 8 --human` | What an honest hand looks like, for the timing checks |
+| `python tools/check_patchaga_parity.py` | The Python and JavaScript simulations still agree, tick for tick |
+| `python tools/patchaga_smoke.py` | The whole API works end to end, honest runs count, and forged ones don't |
+
+The smoke test builds its own throwaway database in the temp directory and asserts at the
+end that only `patchaga_` tables were created, so it can be run anywhere without a target.
+
+### Art
+
+Original, generated by `tools/make_patchaga_assets.py` with Pillow, and committed — the app
+never imports the generator. Everything in the game itself is drawn with canvas primitives at
+runtime, so there are no sprites to load. Sound is synthesized with WebAudio, so there are no
+audio files either, and the game starts muted.
 
 No build step, no bundler, no npm, no CDN, and no new Python dependencies.
 

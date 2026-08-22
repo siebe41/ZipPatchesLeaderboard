@@ -1,0 +1,193 @@
+:root {
+  --bg-a: #1a1a2e;
+  --bg-b: #16213e;
+  --bg-c: #0f3460;
+  --accent: #4ecca3;
+  --accent-2: #36a2eb;
+  --warn: #e94560;
+  --text: #eeeeee;
+  --muted: #9aa4b2;
+  --pmpc-green: #7ac143;
+  --pmpc-blue: #1b6ec2;
+  --duck: #ffd23f;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: linear-gradient(160deg, var(--bg-a) 0%, var(--bg-b) 55%, var(--bg-c) 100%);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+}
+
+.topbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: 0.5px;
+  color: var(--duck);
+}
+
+.topbar .tagline {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.topbar .spacer { flex: 1 1 auto; }
+
+.topbar a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+  border: 1px solid rgba(78, 204, 163, 0.35);
+  border-radius: 6px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.topbar a:hover {
+  background: rgba(78, 204, 163, 0.12);
+}
+
+/*
+ * The canvas is taken out of flow so its own size can never feed back into
+ * the size of the box it is being measured against.
+ */
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.stage canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: block;
+  border-radius: 10px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.5);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.hud {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: help;
+}
+
+.legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px 2px 50% 50%;
+  display: inline-block;
+}
+
+.legend .hint {
+  color: var(--duck);
+  cursor: default;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.controls label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.controls input {
+  width: 190px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.controls input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.controls button {
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(78, 204, 163, 0.45);
+  background: rgba(78, 204, 163, 0.14);
+  color: var(--accent);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.controls button:hover {
+  background: rgba(78, 204, 163, 0.24);
+}
+
+.status {
+  flex: 1 1 240px;
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 16px;
+}
+
+.status.good { color: var(--accent); }
+.status.bad { color: var(--warn); }
+
+@media (max-width: 620px) {
+  .topbar .tagline { display: none; }
+  .legend .hint { display: none; }
+  .controls input { width: 140px; }
+  .status { flex-basis: 100%; }
+}
