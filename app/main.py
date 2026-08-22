@@ -59,6 +59,9 @@ app.include_router(flappy_router)
 from patchman import router as patchman_router  # side game, isolated; see README
 app.include_router(patchman_router)
 
+from patchaga import router as patchaga_router  # side game, isolated; see README
+app.include_router(patchaga_router)
+
 
 class Payload(BaseModel):
     date: str
