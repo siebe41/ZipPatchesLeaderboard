@@ -24,7 +24,9 @@ automatically.
 Existing leaderboard endpoints are unchanged: `/ingest`, `/leaderboard`,
 `/history`, `/reset`, `/adjust`, `/`, `/player`. The accommodation and screenshot
 backfill pages are described further down, and the three side games, Flappy Duck,
-PatchMan and Patchaga, have their own sections.
+PatchMan and Patchaga, have their own sections. `GET /games` is the index that
+links to all three, reached from the dashboard nav bar. Until it existed the games
+were reachable only by typing the URL, since nothing on the site linked to them.
 
 ### `POST /collect`
 
@@ -602,10 +604,13 @@ person produced it. The world is server-issued, the score is whatever the replay
 the clock is anchored by heartbeats.
 
 The hand check is where this game had to differ, and the difference is worth understanding
-before touching it. Patchaga's client auto-repeats while fire is held, and that repeat lands
-on the cooldown to the tick every single time. Measuring the fire stream for regularity
-would therefore flag every honest player, because the regularity is the client's, not the
-player's. So:
+before touching it. The duck fires one patch per press and ignores a held key, so fire looks
+hand-timed — but it isn't. A press is recorded at the first tick the duck was *allowed* to
+shoot, not when the key went down, because the client only queues a press that will produce
+a patch. The cooldown and the cap on patches in the air therefore quantise the fire stream
+onto a grid the player has no say in, and measuring it for regularity would find the
+cooldown on every run, for everyone. A steer carries no such gate: it is recorded when the
+key moved, so its spacing really is the hand's. So:
 
 - **Steering is judged on its timing.** Rate, interval spread, and double presses all read
   the steering stream only.

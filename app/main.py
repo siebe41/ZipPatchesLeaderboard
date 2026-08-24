@@ -1485,6 +1485,7 @@ new Chart(document.getElementById('trendChart'),{type:'line',data:{labels:__TREN
              '<a class="nav-btn" href="/accommodation">Request Time Away</a>'
              '<a class="nav-btn" href="/backfill">Submit Score Proof</a>'
              '<a class="nav-btn ghost" href="/accommodations">Leave Board</a>'
+             '<a class="nav-btn" href="/games">Games</a>'
              '</nav></div>')
     html += '<div class="highlights">'
     html += '<div class="card winner"><h3>Latest Winner</h3><div class="value">' + dw + '</div></div>'
@@ -1774,6 +1775,29 @@ table.board{width:100%;border-collapse:collapse;background:rgba(255,255,255,.03)
 .inline input[type=number]{width:90px}
 .inline input[type=text]{flex:1;min-width:160px}
 .footer{text-align:center;color:#555;padding:20px;font-size:.8em}
+.game-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:18px}
+.game-card{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:22px 18px;text-align:center;display:flex;flex-direction:column;transition:transform .2s,border-color .2s,box-shadow .2s}
+.game-card:hover{transform:translateY(-4px);border-color:var(--accent);box-shadow:0 12px 30px rgba(0,0,0,.38)}
+.game-ico{width:88px;height:88px;margin:0 auto 14px;border-radius:22px;background:radial-gradient(circle at 50% 32%,rgba(255,255,255,.12),rgba(0,0,0,.28));border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center}
+.game-ico svg{width:66px;height:66px;display:block;overflow:visible}
+.game-ico svg g{transform-box:fill-box;transform-origin:center}
+.game-card h3{font-size:1.14em;color:var(--accent);margin-bottom:5px}
+.game-tag{font-size:.85em;color:#cfd8e3;font-style:italic;margin-bottom:9px}
+.game-blurb{font-size:.83em;color:#8b95a5;line-height:1.55;margin-bottom:16px;flex:1}
+.game-links{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.game-play{background:var(--accent);color:#0b1220;font-weight:bold;padding:9px 20px;border-radius:10px;text-decoration:none;font-size:.85em;transition:filter .2s}
+.game-play:hover{filter:brightness(1.15)}
+.game-board{background:rgba(255,255,255,.06);color:#9aa4b2;padding:9px 14px;border-radius:10px;text-decoration:none;font-size:.85em;border:1px solid rgba(255,255,255,.12);transition:color .2s}
+.game-board:hover{color:#eee}
+@keyframes ico-bob{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-5px) rotate(-7deg)}}
+@keyframes ico-chase{0%,100%{transform:translateX(0)}50%{transform:translateX(6px)}}
+@keyframes ico-fly{0%{transform:translateY(9px);opacity:.35}55%{opacity:1}100%{transform:translateY(-11px);opacity:0}}
+@keyframes ico-flap{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.55)}}
+.game-card:hover .ico-bob{animation:ico-bob .9s ease-in-out infinite}
+.game-card:hover .ico-chase{animation:ico-chase 1s ease-in-out infinite}
+.game-card:hover .ico-fly{animation:ico-fly 1s linear infinite}
+.game-card:hover .ico-flap{animation:ico-flap .5s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce){.game-card:hover .ico-bob,.game-card:hover .ico-chase,.game-card:hover .ico-fly,.game-card:hover .ico-flap{animation:none}.game-card{transition:none}}
 @media(max-width:600px){.row{flex-direction:column;gap:0}.review .shot{flex:1 1 100%}}
 </style>"""
 
@@ -1799,6 +1823,133 @@ def player_datalist(selected=""):
 
 def _banner(kind, message):
     return '<div class="banner ' + kind + '">' + message + '</div>' if message else ''
+
+
+# =========================================================================== #
+# Games
+#
+# A signpost, not an integration. Each game mounts its own router and owns its
+# own leaderboard, and nothing here knows anything about them beyond a name, a
+# link and a drawing. Adding a fourth game is one entry in GAMES; no other code
+# on this page changes, and a game that is removed leaves no dangling query.
+#
+# Deliberately not shown: scores. Pulling a top score per game would mean this
+# page reaching into three separate schemas and failing to render whenever one
+# of them is mid-migration, which is a lot of coupling to buy a number that is
+# already one click away on each game's own board.
+#
+# The icons are inline SVG rather than files because that is what the games do
+# themselves -- Patchaga draws every sprite from primitives and ships no art.
+# Three more files would be three more things to deploy and three more chances
+# for a 404 to leave a card blank. They animate only on hover, and not at all
+# when the visitor has asked for reduced motion.
+# =========================================================================== #
+
+ICON_FLAPPY = (
+    '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">'
+    '<rect x="47" y="-2" width="15" height="20" rx="3" fill="#3aa17e"/>'
+    '<rect x="45" y="14" width="19" height="8" rx="3" fill="#4ecca3"/>'
+    '<rect x="47" y="46" width="15" height="20" rx="3" fill="#3aa17e"/>'
+    '<rect x="45" y="42" width="19" height="8" rx="3" fill="#4ecca3"/>'
+    '<g class="ico-bob">'
+    '<ellipse cx="22" cy="33" rx="13" ry="11" fill="#ffcd56"/>'
+    '<path d="M33 29h11l-5 6h-6z" fill="#ff9f40"/>'
+    '<g class="ico-flap"><ellipse cx="18" cy="37" rx="7.5" ry="5" fill="#eab026"/></g>'
+    '<circle cx="27" cy="28" r="2.4" fill="#1a1a2e"/>'
+    '</g></svg>'
+)
+
+ICON_PATCHMAN = (
+    '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">'
+    '<circle cx="41" cy="32" r="2.6" fill="#8fd0ff"/>'
+    '<circle cx="49" cy="32" r="2.6" fill="#8fd0ff"/>'
+    '<g><path d="M51 44v-8a6 6 0 0 1 12 0v8l-3-2.4-3 2.4-3-2.4z" fill="#e94560"/>'
+    '<circle cx="54.5" cy="36" r="1.7" fill="#fff"/>'
+    '<circle cx="59.5" cy="36" r="1.7" fill="#fff"/></g>'
+    '<g class="ico-chase">'
+    '<path d="M18 32 L30.7 24 A15 15 0 1 0 30.7 40 Z" fill="#36a2eb"/>'
+    '<circle cx="15" cy="25" r="2.1" fill="#0f2340"/>'
+    '</g></svg>'
+)
+
+ICON_PATCHAGA = (
+    '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">'
+    '<g>'
+    '<ellipse cx="24" cy="11" rx="5" ry="3.4" fill="#ff8ba0" opacity=".8"'
+    ' transform="rotate(-22 24 11)"/>'
+    '<ellipse cx="40" cy="11" rx="5" ry="3.4" fill="#ff8ba0" opacity=".8"'
+    ' transform="rotate(22 40 11)"/>'
+    '<ellipse cx="32" cy="12" rx="9" ry="6.5" fill="#e94560"/>'
+    '<circle cx="29" cy="11" r="1.6" fill="#1a1a2e"/>'
+    '<circle cx="35" cy="11" r="1.6" fill="#1a1a2e"/>'
+    '</g>'
+    '<g class="ico-fly">'
+    '<circle cx="32" cy="32" r="7" fill="#1b6ec2"/>'
+    '<path d="M28.4 32.3l2.7 2.7 4.6-5.4" fill="none" stroke="#4ecca3"'
+    ' stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>'
+    '</g>'
+    '<g>'
+    '<ellipse cx="32" cy="55" rx="13" ry="7" fill="#ffcd56"/>'
+    '<circle cx="32" cy="47" r="6" fill="#ffd76e"/>'
+    '<path d="M32 39.5l3.6 4.5h-7.2z" fill="#ff9f40"/>'
+    '<circle cx="29.6" cy="46" r="1.5" fill="#1a1a2e"/>'
+    '<circle cx="34.4" cy="46" r="1.5" fill="#1a1a2e"/>'
+    '</g></svg>'
+)
+
+GAMES = [
+    {
+        "slug": "flappy",
+        "name": "Flappy Duck",
+        "accent": "#ffcd56",
+        "tagline": "Patch the stack. Miss nothing.",
+        "blurb": "One button, one duck, and a stack of pipes that does not care. "
+                 "Tap to rise, stop tapping to fall.",
+        "icon": ICON_FLAPPY,
+    },
+    {
+        "slug": "patchman",
+        "name": "PatchMan",
+        "accent": "#36a2eb",
+        "tagline": "Clear the backlog. Patch the threats.",
+        "blurb": "A maze chase on a circuit board. You are the patch, the four "
+                 "things hunting you are vulnerabilities.",
+        "icon": ICON_PATCHMAN,
+    },
+    {
+        "slug": "patchaga",
+        "name": "Patchaga",
+        "accent": "#4ecca3",
+        "tagline": "Patch the bugs before the bugs patch you.",
+        "blurb": "A rubber duck at the bottom of the screen, a formation of bugs "
+                 "at the top, and logos in between.",
+        "icon": ICON_PATCHAGA,
+    },
+]
+
+
+@app.get("/games", response_class=HTMLResponse)
+def games_page():
+    cards = ""
+    for game in GAMES:
+        slug = game["slug"]
+        cards += (
+            '<div class="game-card" style="--accent:' + game["accent"] + '">'
+            '<div class="game-ico">' + game["icon"] + '</div>'
+            '<h3>' + esc(game["name"]) + '</h3>'
+            '<p class="game-tag">' + esc(game["tagline"]) + '</p>'
+            '<p class="game-blurb">' + esc(game["blurb"]) + '</p>'
+            '<div class="game-links">'
+            '<a class="game-play" href="/' + slug + '">Play</a>'
+            '<a class="game-board" href="/' + slug + '/board">Leaderboard</a>'
+            '</div></div>'
+        )
+    body = ('<a class="back" href="/">&larr; Back to leaderboard</a>'
+            '<div class="panel"><div class="game-grid">' + cards + '</div></div>'
+            '<p class="footer">Each game keeps its own board and its own season. '
+            'None of them touch the Zip Patchlings standings.</p>')
+    return form_page("Games", body, ribbon="Arcade",
+                     subtitle="Side games. Separate boards. Same duck.")
 
 
 @app.get("/accommodation", response_class=HTMLResponse)

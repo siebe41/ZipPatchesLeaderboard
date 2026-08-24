@@ -627,7 +627,7 @@ function stepSweeping(sim, bug) {
   const speed = fdiv(150 * tier.speed, 100);
   bug.vx = bug.sweepFromLeft ? speed : -speed;
   // A shallow S through the lane, which is what makes a sweep worth aiming at
-  // rather than holding the fire button down for.
+  // rather than spraying at.
   bug.vy = fdiv(46 * isin(fdiv(bug.t * SIN_STEPS, 200) + bug.sweepPhase), SIN_SCALE);
   bug.x += bug.vx;
   bug.y += bug.vy;

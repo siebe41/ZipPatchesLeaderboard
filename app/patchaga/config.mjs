@@ -110,14 +110,28 @@ export const CONFIG = {
   mergedOffset: 11,     // px between the two ducks once merged
 
   // --- Patches (what the duck fires) --------------------------------------
-  // Two in the air at once is the constraint the whole genre is built on: it
-  // makes a missed shot cost something. A merged pair fires two at a time and
-  // is allowed four, which is the reward for the rescue rather than a new gun.
-  patchSpeed: 200,      // sub-units per tick, upward
+  // A cap on patches in the air is the constraint the whole genre is built on:
+  // it makes a missed shot cost something. But the cap only costs *time*, and
+  // how much time is set by how long a patch takes to leave the screen, which
+  // is a consequence of the speed rather than anything anyone chose. At the
+  // original 200 a patch needed 1.36s to clear 476px, so two in the air held
+  // the sustained rate to 1.6 shots a second while the cooldown below would
+  // have allowed 9.2. Four presses in five did nothing at all, and playtesting
+  // called that exactly what it was: unresponsive.
+  //
+  // So the patch is faster and the cap is one wider. A miss still costs, at
+  // 0.61s instead of 1.36s, and the sustained rate is 4.8 a second.
+  //
+  // patchSpeed cannot go much above this. Collision is a per-tick overlap test
+  // rather than a swept one, so a patch that advances more than
+  // bugHalfH + patchHalfH = 14px in a tick can pass clean through a bug
+  // between two tests and never register. 6.5px leaves the other half of that
+  // budget for the bug's own motion closing from the opposite direction.
+  patchSpeed: 416,      // sub-units per tick, upward = 6.5px/tick
   patchHalfW: 4,        // px
   patchHalfH: 6,
-  maxPatches: 2,
-  maxPatchesMerged: 4,
+  maxPatches: 3,
+  maxPatchesMerged: 6,  // a merged pair fires two at a time, so this stays even
   patchCooldown: 13,    // ticks between presses that fire
 
   // --- What the bugs fire -------------------------------------------------

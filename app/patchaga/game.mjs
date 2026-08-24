@@ -56,8 +56,8 @@ const run = {
 const input = {
   steer: [],       // ACTION.LEFT / ACTION.RIGHT, most recent last
   dir: ACTION.NEUTRAL,
-  fireHeld: false,
-  fireLatch: false, // a tap too short to survive until the next frame
+  fireHeld: false,  // only so a pointer drag knows it is still down
+  fireLatch: false, // one press waiting to become one patch
 };
 
 let renderer = null;
@@ -352,7 +352,10 @@ function bindInput() {
       pressSteer(ACTION.RIGHT, now);
     } else if (KEY_FIRE.has(ev.code)) {
       ev.preventDefault();
-      if (ev.repeat) return; // the loop repeats fire itself, on the cooldown
+      // The OS sends repeated keydowns for a held key. Letting those set the
+      // latch would restore hold-to-fire through the back door, at whatever
+      // rate the keyboard happens to be configured for.
+      if (ev.repeat) return;
       audio.unlock();
       tryStart(now);
       input.fireHeld = true;
@@ -526,11 +529,22 @@ function drainEvents(sim) {
 /**
  * Fire, if the player wants to and the duck can.
  *
- * Held fire repeats here rather than from the browser's key repeat, because
- * key repeat starts after half a second and then runs at whatever rate the OS
- * is set to. Gating on ``canFire`` means every press recorded in the trace
- * produced a patch, so the trace stays a record of the run rather than of the
- * keyboard.
+ * One patch per press. ``fireLatch`` is set by the keydown edge and cleared
+ * the moment a patch leaves, so holding the key does nothing after the first
+ * shot and the player has to let go and press again. That is the genre's
+ * behaviour and it is what playtesting asked for: an earlier build repeated
+ * while held, and a held key emptying the magazine by itself reads as the game
+ * firing on its own rather than on the player.
+ *
+ * The latch is deliberately not cleared when the shot cannot happen yet. A
+ * press made while the cooldown is running, or while every patch slot is full,
+ * is remembered and fires at the first tick that allows it. That is at most
+ * 0.61s away and usually far less. Dropping it instead would mean a press that
+ * the player definitely made produced nothing, which is the complaint this
+ * whole function exists to answer.
+ *
+ * Gating on ``canFire`` means every press recorded in the trace produced a
+ * patch, so the trace stays a record of the run rather than of the keyboard.
  *
  * The wave title is the one exception. A press there fires nothing, but it is
  * what promotes the wave from its title card to play, so it is not a no-op and
@@ -543,7 +557,7 @@ function wouldDoSomething(sim) {
 }
 
 function maybeFire(sim) {
-  if (!input.fireHeld && !input.fireLatch) return;
+  if (!input.fireLatch) return;
   if (!wouldDoSomething(sim)) return;
   queueInput(sim, sim.tick, ACTION.FIRE);
   input.fireLatch = false;
@@ -565,10 +579,10 @@ function frame(nowMs) {
     while (sim.tick < target && guard < CONFIG.maxCatchUpSteps) {
       step(sim);
       guard += 1;
-      // Auto-repeat has to be checked between ticks as well as between frames.
-      // At 120 ticks a second and a 13 tick cooldown a 60Hz frame covers two
-      // opportunities, and firing only once a frame would quietly halve the
-      // rate of fire on a slow display.
+      // A buffered press has to be checked between ticks as well as between
+      // frames. At 120 ticks a second a 60Hz frame covers two ticks, so a
+      // press waiting on a cooldown that expires mid-frame would otherwise
+      // wait for the next frame instead of the next tick it was allowed.
       maybeFire(sim);
     }
     if (guard >= CONFIG.maxCatchUpSteps) {
