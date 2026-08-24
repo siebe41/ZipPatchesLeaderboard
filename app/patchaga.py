@@ -584,11 +584,11 @@ DUCK_HALF_H = 6
 DUCK_MARGIN = 14
 MERGED_OFFSET = 11
 
-PATCH_SPEED = 200
+PATCH_SPEED = 416
 PATCH_HALF_W = 4
 PATCH_HALF_H = 6
-MAX_PATCHES = 2
-MAX_PATCHES_MERGED = 4
+MAX_PATCHES = 3
+MAX_PATCHES_MERGED = 6
 PATCH_COOLDOWN = 13
 
 BUG_SHOT_SPEED = 68
@@ -1544,11 +1544,18 @@ def sweep_sessions():
 # On separating steering from fire. This is the one place Patchaga has to differ
 # from PatchMan, and getting it wrong would flag every honest player. PatchMan
 # has a single input stream and every input is hand timed, so the spread of
-# gaps between them is meaningful. Here the client auto-repeats while the fire
-# key is held -- which it must, because a shooter that demands one press per
-# shot is a worse game -- and the repeat lands on the cooldown, exactly, every
-# time. Measuring that stream for "suspiciously regular timing" would find
-# nothing but the cooldown, on every run, for everyone.
+# gaps between them is meaningful. Fire here is not, even though the client
+# fires one patch per press and never repeats a held key.
+#
+# The reason is that a fire press is not recorded when the hand made it. It is
+# recorded at the first tick the duck was actually allowed to shoot, because
+# the client only queues a press that will produce a patch. So the cooldown and
+# the cap on patches in the air together quantise the fire stream onto a grid
+# nobody chose, and a run of evenly spaced fire ticks is evidence about how fast
+# patches clear the screen rather than about whose hand pressed the key.
+# Measuring it for regularity would find the cooldown, on every run, for
+# everyone. Steering carries no such gate: a steer is recorded at the moment the
+# key moved, so its spacing is the hand's.
 #
 # So the timing checks read the steering stream only, and the fire stream is
 # judged on its result instead: accuracy. A solver picks the tick that hits, so
@@ -1623,9 +1630,10 @@ CLOCK_FLAGS = ("faster_than_real_time", "not_enough_beats", "beats_outran_clock"
 def steering_codes(inputs):
     """The inputs a hand timed, reduced to one entry per motion.
 
-    Two things are dropped. Fire, because the client auto-repeats while the
-    button is held and that repeat lands on the cooldown to the tick every time,
-    so its timing measures the client rather than the player.
+    Two things are dropped. Fire, because a press is recorded at the first tick
+    the duck was allowed to shoot rather than when the hand made it, so the
+    cooldown and the cap on patches in the air quantise its timing onto a grid
+    the player has no say in. It measures the gun, not the player.
 
     And the release half of a roll. Moving from left to right is one motion of
     one hand, but the browser reports it as two events: the left key coming up
