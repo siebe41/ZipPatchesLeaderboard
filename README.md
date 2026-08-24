@@ -24,7 +24,9 @@ automatically.
 Existing leaderboard endpoints are unchanged: `/ingest`, `/leaderboard`,
 `/history`, `/reset`, `/adjust`, `/`, `/player`. The accommodation and screenshot
 backfill pages are described further down, and the three side games, Flappy Duck,
-PatchMan and Patchaga, have their own sections.
+PatchMan and Patchaga, have their own sections. `GET /games` is the index that
+links to all three, reached from the dashboard nav bar. Until it existed the games
+were reachable only by typing the URL, since nothing on the site linked to them.
 
 ### `POST /collect`
 
