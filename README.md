@@ -679,6 +679,48 @@ audio files either, and the game starts muted.
 
 No build step, no bundler, no npm, no CDN, and no new Python dependencies.
 
+## Sprite exports
+
+`app/_sprites/` holds every game character as a standalone transparent PNG, plus `_index.png`
+showing the whole set at a glance, and `app/_sprites.zip` holding the lot for anyone who just
+wants the pictures. They are reference art — nothing serves them and no route points at them, so
+they are there to be used in docs, chat, or anywhere else a picture of the duck is wanted.
+
+Two of the three games had nothing to export. Patchaga and PatchMan draw the duck, the bugs and
+the vulnerabilities from canvas primitives, for the reason each renderer gives: an asset would
+have to be authored once per colour per state, and between them they have three bug palettes,
+four vulnerability palettes, a frightened palette and a flash frame. The duck does not exist as
+a file. It exists as a sequence of fill calls.
+
+So `tools/make_sprite_exports.mjs` runs the games' real draw functions against a Node canvas
+instead of a browser one, patching a temporary copy of each renderer to reach the private
+functions and leaving the originals alone. Redrawing the sprites in the tool would have been
+easier and would have started drifting from the game the first time somebody changed a colour,
+with nothing to catch it — there is no test that a picture still looks like the thing it is a
+picture of. Being vector, the export costs nothing to scale, so the sprites come out around 500
+to 800 pixels rather than upscaled from the size they appear on screen.
+
+Flappy Duck is the exception and is treated as one. It really does ship art, in the atlas built
+by `tools/make_flappy_atlas.py`, so its frames are cut from that file and left at native size.
+Upscaling pixel art is a decision for whoever uses it.
+
+    npm install @napi-rs/canvas
+    node tools/make_sprite_exports.mjs
+
+That dependency is authoring-only, exactly as Pillow is for `tools/make_patchaga_assets.py`.
+Serving the games still needs nothing but Python, the deploy is unchanged, and the exported PNGs
+are committed so a checkout never runs this. Run it when a sprite changes.
+
+The tool asserts that it reached the draw functions rather than assuming it did. A renderer that
+gets restructured so the patch no longer applies would otherwise still import, still run, and
+produce a directory of correctly named blank images.
+
+The zip is built by the same tool for the same reason: one made by hand alongside the PNGs would
+be wrong the moment a sprite changed, and nothing would say so. It uses the standard library,
+stores rather than deflates because PNG is already compressed, and pins its timestamps to the
+start of the DOS epoch, so re-running with no sprite changes leaves the file byte-identical and
+git reports nothing to commit.
+
 ## Environment variables
 
 | Variable              | Default                      | Purpose                                            |
