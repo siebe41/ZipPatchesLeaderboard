@@ -682,9 +682,9 @@ No build step, no bundler, no npm, no CDN, and no new Python dependencies.
 ## Sprite exports
 
 `app/_sprites/` holds every game character as a standalone transparent PNG, plus `_index.png`
-showing the whole set at a glance. They are reference art — nothing serves them and no route
-points at them, so they are there to be used in docs, chat, or anywhere else a picture of the
-duck is wanted.
+showing the whole set at a glance, and `app/_sprites.zip` holding the lot for anyone who just
+wants the pictures. They are reference art — nothing serves them and no route points at them, so
+they are there to be used in docs, chat, or anywhere else a picture of the duck is wanted.
 
 Two of the three games had nothing to export. Patchaga and PatchMan draw the duck, the bugs and
 the vulnerabilities from canvas primitives, for the reason each renderer gives: an asset would
@@ -714,6 +714,12 @@ are committed so a checkout never runs this. Run it when a sprite changes.
 The tool asserts that it reached the draw functions rather than assuming it did. A renderer that
 gets restructured so the patch no longer applies would otherwise still import, still run, and
 produce a directory of correctly named blank images.
+
+The zip is built by the same tool for the same reason: one made by hand alongside the PNGs would
+be wrong the moment a sprite changed, and nothing would say so. It uses the standard library,
+stores rather than deflates because PNG is already compressed, and pins its timestamps to the
+start of the DOS epoch, so re-running with no sprite changes leaves the file byte-identical and
+git reports nothing to commit.
 
 ## Environment variables
 

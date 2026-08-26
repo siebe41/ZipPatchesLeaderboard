@@ -298,6 +298,87 @@ written.sort((a, b) => a.name.localeCompare(b.name));
 
 fs.rmSync(SCRATCH, { recursive: true, force: true });
 
+// ---------------------------------------------------------------------------
+// A zip of the whole set, for handing to somebody who just wants the pictures.
+//
+// Built here rather than by hand, because a zip made once alongside the PNGs is
+// wrong the moment a sprite changes and nothing would ever say so. Written with
+// the standard library: entries are stored rather than deflated, since PNG is
+// already compressed and squeezing it again saves about one percent. Timestamps
+// are pinned to the start of the DOS epoch, so re-running with no sprite changes
+// produces a byte-identical file and git reports nothing to commit.
+// ---------------------------------------------------------------------------
+
+const CRC_TABLE = (() => {
+  const t = new Int32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c;
+  }
+  return t;
+})();
+
+function crc32(buf) {
+  let c = -1;
+  for (let i = 0; i < buf.length; i += 1) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+
+function writeZip(zipPath, prefix, names) {
+  const DOS_TIME = 0;
+  const DOS_DATE = 33; // 1980-01-01, the earliest a DOS timestamp can express.
+  const parts = [];
+  const central = [];
+  let offset = 0;
+
+  for (const name of names) {
+    const body = fs.readFileSync(path.join(OUT, name));
+    const entry = Buffer.from(prefix + name, 'utf8');
+    const sum = crc32(body);
+
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(DOS_TIME, 10);
+    local.writeUInt16LE(DOS_DATE, 12);
+    local.writeUInt32LE(sum, 14);
+    local.writeUInt32LE(body.length, 18);
+    local.writeUInt32LE(body.length, 22);
+    local.writeUInt16LE(entry.length, 26);
+    parts.push(local, entry, body);
+
+    const dir = Buffer.alloc(46);
+    dir.writeUInt32LE(0x02014b50, 0);
+    dir.writeUInt16LE(20, 4);
+    dir.writeUInt16LE(20, 6);
+    dir.writeUInt16LE(DOS_TIME, 12);
+    dir.writeUInt16LE(DOS_DATE, 14);
+    dir.writeUInt32LE(sum, 16);
+    dir.writeUInt32LE(body.length, 20);
+    dir.writeUInt32LE(body.length, 24);
+    dir.writeUInt16LE(entry.length, 28);
+    dir.writeUInt32LE(offset, 42);
+    central.push(dir, entry);
+
+    offset += local.length + entry.length + body.length;
+  }
+
+  const directory = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(names.length, 8);
+  end.writeUInt16LE(names.length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+
+  fs.writeFileSync(zipPath, Buffer.concat([...parts, directory, end]));
+}
+
+const zipNames = [...written.map((s) => `${s.name}.png`), '_index.png'].sort();
+const ZIP = path.join(APP, '_sprites.zip');
+writeZip(ZIP, '_sprites/', zipNames);
+
 console.log('%s  %s  %s  %s', 'sprite'.padEnd(32), 'size'.padStart(11), 'ink'.padStart(6), 'source');
 console.log('-'.repeat(78));
 for (const s of written) {
@@ -307,4 +388,5 @@ for (const s of written) {
     `${s.ink.toFixed(1)}%`.padStart(6),
     s.note);
 }
-console.log('\n%d sprites and an index written to app/_sprites/', written.length);
+console.log('\n%d sprites and an index written to app/_sprites/, zipped to app/_sprites.zip',
+  written.length);
