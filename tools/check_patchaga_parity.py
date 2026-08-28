@@ -19,8 +19,8 @@ final score is a bug you have to bisect.
 
 Half the cases are random input and half are played by ``tools/patchaga_bot.mjs``.
 Both matter, and for opposite reasons. Random input dies in the first wave, so
-on its own it would never reach a capture, a merged duck or a regression sweep
--- a whole third of the rules would go unchecked. The bot reaches them, but it
+on its own it would never reach a lock, an overclock or a regression sweep --
+a whole third of the rules would go unchecked. The bot reaches them, but it
 plays sensibly, so on its own it would never wander into the ugly corners: dying
 on the same tick a wave is cleared, firing into a bug that is already dead,
 turning on the frame a beam closes. Neither generator finds what the other does.
@@ -77,7 +77,10 @@ def digest(sim):
     mix_signed(sim.duck.x)
     mix_signed(sim.duck.dir)
     mix(1 if sim.duck.alive else 0)
-    mix(1 if sim.duck.merged else 0)
+    mix(1 if sim.duck.locked else 0)
+    mix(sim.duck.lock_ticks)
+    mix(sim.duck.overclock_ticks)
+    mix(sim.duck.locker_bug.order + 1 if sim.duck.locker_bug else 0)
     mix(sim.duck.cooldown)
     mix(sim.duck.invuln)
     mix(sim.launch_index)
@@ -89,14 +92,13 @@ def digest(sim):
     mix(sim.sweep_hits)
     mix(sim.bugs_patched)
     mix(sim.shots_fired)
-    mix(sim.forks)
-    mix(sim.rescues)
+    mix(sim.locks)
+    mix(sim.cures)
     mix(len(sim.bugs))
     for b in sim.bugs:
         mix(b.state); mix_signed(b.x); mix_signed(b.y); mix_signed(b.t)
         mix_signed(b.vx); mix_signed(b.vy); mix(b.fire_timer)
-        mix(1 if b.beam_open else 0); mix(1 if b.holds_duck else 0)
-        mix(1 if b.wants_fork else 0)
+        mix(1 if b.beam_open else 0); mix(1 if b.wants_lock else 0)
         mix_signed(b.dive_side); mix(b.dive_phase)
         mix_signed(b.return_x); mix_signed(b.return_y)
         mix(1 if b.is_sweep else 0); mix(b.sweep_lane); mix(b.sweep_phase)
@@ -106,9 +108,6 @@ def digest(sim):
     mix(len(sim.bug_shots))
     for s in sim.bug_shots:
         mix_signed(s[0]); mix_signed(s[1]); mix_signed(s[2]); mix_signed(s[3])
-    mix(1 if sim.rescue else 0)
-    if sim.rescue:
-        mix_signed(sim.rescue[0]); mix_signed(sim.rescue[1])
     return h
 
 
@@ -138,19 +137,21 @@ def replay_python(seed, inputs, max_ticks, top_up=0):
         "bugs_patched": sim.bugs_patched,
         "shots_fired": sim.shots_fired,
         "waves_cleared": sim.waves_cleared,
-        "forks": sim.forks,
-        "rescues": sim.rescues,
+        "locks": sim.locks,
+        "cures": sim.cures,
         "sweep_hits": sim.sweep_hits,
         "sweep_total": sim.sweep_total,
         "dives_since_rootkit": sim.dives_since_rootkit,
         "duck": [sim.duck.x, sim.duck.dir, 1 if sim.duck.alive else 0,
-                 1 if sim.duck.merged else 0, sim.duck.cooldown, sim.duck.invuln],
+                 1 if sim.duck.locked else 0, sim.duck.lock_ticks,
+                 sim.duck.overclock_ticks,
+                 sim.duck.locker_bug.order + 1 if sim.duck.locker_bug else 0,
+                 sim.duck.cooldown, sim.duck.invuln],
         "bugs": [[b.state, b.x, b.y, b.t, b.vx, b.vy,
-                  1 if b.beam_open else 0, 1 if b.holds_duck else 0,
+                  1 if b.beam_open else 0, 1 if b.wants_lock else 0,
                   1 if b.is_sweep else 0] for b in sim.bugs],
         "patches": [[p[0], p[1]] for p in sim.patches],
         "bug_shots": [[s[0], s[1], s[2], s[3]] for s in sim.bug_shots],
-        "rescue": [sim.rescue[0], sim.rescue[1]] if sim.rescue else None,
         "inputs": list(sim.inputs),
         "trail": trail,
     }

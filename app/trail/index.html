@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0f1a17">
+<meta name="description" content="Patch Trail. Tow a lengthening chain of deployed patches, one grid step at a time.">
+<title>Patch Trail</title>
+<link rel="stylesheet" href="/trail/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Patch Trail</h1>
+  <span class="tagline">Deploy patches. Don't tangle the trail.</span>
+  <span class="spacer"></span>
+  <a href="/trail/board">Leaderboard</a>
+</header>
+
+<main class="stage">
+  <canvas id="game" width="672" height="488" aria-label="Patch Trail game"></canvas>
+</main>
+
+<footer class="hud">
+  <ul class="legend">
+    <li><i style="background:#1b6ec2"></i> Patch</li>
+    <li><i style="background:#3ec9b0"></i> Patch chain</li>
+    <li class="hint">Arrows or WASD to turn. M mutes.</li>
+  </ul>
+  <div class="controls">
+    <label for="player">Player</label>
+    <input id="player" autocomplete="off" autocapitalize="words"
+           spellcheck="false" placeholder="Your name" maxlength="60">
+    <button id="post" type="button">Post run</button>
+    <span id="status" class="status"></span>
+  </div>
+</footer>
+
+<script type="module" src="/trail/static/game.mjs"></script>
+<noscript><p style="padding:16px;color:#e94560">Patch Trail needs JavaScript.</p></noscript>
+</body>
+</html>

@@ -107,7 +107,6 @@ export const CONFIG = {
   duckHalfW: 7,         // px, collision only. Deliberately smaller than the
   duckHalfH: 6,         // drawn duck: a near miss should read as a near miss.
   duckMargin: 14,       // px of wall the duck cannot cross
-  mergedOffset: 11,     // px between the two ducks once merged
 
   // --- Patches (what the duck fires) --------------------------------------
   // A cap on patches in the air is the constraint the whole genre is built on:
@@ -131,7 +130,6 @@ export const CONFIG = {
   patchHalfW: 4,        // px
   patchHalfH: 6,
   maxPatches: 3,
-  maxPatchesMerged: 6,  // a merged pair fires two at a time, so this stays even
   patchCooldown: 13,    // ticks between presses that fire
 
   // --- What the bugs fire -------------------------------------------------
@@ -157,8 +155,9 @@ export const CONFIG = {
   bugHalfH: 8,
 
   // --- Wave structure -----------------------------------------------------
-  // Row 0 holds the rootkits, which are the only bugs that can fork the duck.
-  // Rows 1 and 2 are weevils, rows 3 and 4 drones. 44 bugs, of which 4 matter.
+  // Row 0 holds the rootkits, which are the only bugs that can encrypt the
+  // duck's fire control. Rows 1 and 2 are weevils, rows 3 and 4 drones. 44
+  // bugs, of which 4 matter.
   rootkitCols: [3, 4, 5, 6],
   entryTicks: 150,      // ticks one bug spends flying its entry path
   entryStagger: 16,     // ticks between one bug launching and the next
@@ -183,22 +182,27 @@ export const CONFIG = {
   maxDiversCap: 6,
   fireChance: 22,       // percent, per firing opportunity in a dive
   fireEvery: 40,        // ticks between a diving bug's firing opportunities
-  // Rootkits are 4 bugs in 44, so picking a diver uniformly would show the fork
-  // -- the one mechanic worth learning -- about twice a wave. After this many
-  // dives without one, the next one is a rootkit if any is still parked.
+  // Rootkits are 4 bugs in 44, so picking a diver uniformly would show the
+  // lock -- the one mechanic worth learning -- about twice a wave. After this
+  // many dives without one, the next one is a rootkit if any is still parked.
   rootkitEvery: 5,
 
-  // --- The fork -----------------------------------------------------------
-  // A rootkit that reaches the duck's altitude opens a beam instead of ramming.
-  // Being caught costs a life like any other death, but the duck is not gone:
-  // it is held, and shooting the captor gets it back with interest.
+  // --- The lock -------------------------------------------------------------
+  // A rootkit that reaches the duck's altitude opens a beam instead of
+  // ramming. Getting caught does not cost a life: it encrypts the duck's fire
+  // control, and the duck keeps flying, just unable to shoot back. The lock
+  // clears itself if the timer runs out, or instantly if the rootkit holding
+  // it is shot down first -- which also overclocks the fire rate for a bit,
+  // so hunting down the right target is worth the risk of going in unarmed.
   beamTicks: 200,       // how long a beam stays open
   beamWindup: 46,       // ticks of beam drawn before it can catch anything
   beamHalfW: 22,        // px, the catchable half-width at the duck's row
   beamHoverY: 300,      // px the rootkit hovers at while beaming
-  forkChance: 45,       // percent chance a rootkit dive is a fork attempt
-  rescueDropSpeed: 62,  // sub-units per tick a freed duck falls
-  mergeBonus: 1000,
+  lockChance: 45,       // percent chance a rootkit dive is a lock attempt
+  lockTicks: 300,       // ticks the duck stays encrypted before it clears itself
+  overclockTicks: 360,  // ticks of halved fire cooldown after an early cure
+  overclockCooldownPct: 50, // fire cooldown, as a percent of normal, while overclocked
+  encryptBonus: 1000,   // points for shooting down a lock before it expires
 
   // --- The regression sweep (bonus wave) ----------------------------------
   // Every fourth wave nothing shoots and nothing forms up. The bugs fly a

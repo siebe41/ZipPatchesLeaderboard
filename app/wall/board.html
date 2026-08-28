@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101425">
+<meta name="description" content="Patch Wall leaderboard.">
+<title>Patch Wall leaderboard</title>
+<link rel="stylesheet" href="/wall/static/board.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Patch Wall</h1>
+  <span class="tagline">Leaderboard</span>
+  <span class="spacer"></span>
+  <a href="/wall">Play</a>
+</header>
+
+<main class="wrap">
+  <p class="isolation">
+    This board is the side game only. It has no bearing on the Zip and Patches
+    leaderboard, and no run here changes a rank, a streak or a penalty there.
+  </p>
+
+  <nav class="tabs" id="tabs" aria-label="Board views"></nav>
+  <p class="blurb" id="blurb"></p>
+
+  <section class="card">
+    <table class="board">
+      <thead><tr id="head"></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="empty" id="empty" hidden>No runs posted yet. Be the first.</p>
+  </section>
+
+  <section class="card" id="you" hidden>
+    <h2>Your runs</h2>
+    <div class="stats" id="stats"></div>
+    <table class="board recent">
+      <thead><tr><th>Score</th><th>Level</th><th>Rallies</th><th>Lasted</th><th class="when">When</th></tr></thead>
+      <tbody id="recent"></tbody>
+    </table>
+  </section>
+
+  <section class="card" id="fame" hidden>
+    <h2>Hall of fame</h2>
+    <p class="note">Winners of finished seasons. A season is just the calendar
+      month a run happened in, worked out when this page is loaded.</p>
+    <table class="board">
+      <thead><tr><th>Season</th><th>Winner</th><th>Score</th><th>Players</th></tr></thead>
+      <tbody id="fameRows"></tbody>
+    </table>
+  </section>
+</main>
+
+<script type="module" src="/wall/static/board.mjs"></script>
+<noscript><p style="padding:16px;color:#e94560">The board needs JavaScript.</p></noscript>
+</body>
+</html>

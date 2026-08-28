@@ -133,7 +133,7 @@ function renderStats(summary) {
     ['Today', summary.best_today],
     ['Furthest wave', summary.furthest_wave],
     ['Bugs patched', summary.bugs],
-    ['Ducks rescued', summary.rescues],
+    ['Locks cured', summary.cures],
     ['Runs', summary.runs],
   ];
   for (const [label, value] of items) {

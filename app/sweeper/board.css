@@ -1,0 +1,222 @@
+:root {
+  --bg-a: #0a0a16;
+  --bg-b: #0d0d1e;
+  --bg-c: #150c2a;
+  --accent: #c08bff;
+  --accent-2: #8fd0ff;
+  --warn: #e94560;
+  --text: #eeeeee;
+  --muted: #9aa4b2;
+  --gold: #ffd23f;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: linear-gradient(160deg, var(--bg-a) 0%, var(--bg-b) 55%, var(--bg-c) 100%);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+}
+
+.topbar {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  position: sticky;
+  top: 0;
+  background: rgba(10, 10, 22, 0.94);
+  backdrop-filter: blur(6px);
+  z-index: 2;
+}
+
+.topbar h1 { margin: 0; font-size: 17px; letter-spacing: 0.5px; color: var(--gold); }
+.topbar .tagline { font-size: 12px; color: var(--muted); }
+.topbar .spacer { flex: 1 1 auto; }
+
+.topbar a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 13px;
+  border: 1px solid rgba(192, 139, 255, 0.35);
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+
+.topbar a:hover { background: rgba(192, 139, 255, 0.12); }
+
+.wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px 16px 48px;
+}
+
+.isolation {
+  margin: 0 0 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  border-left: 2px solid rgba(143, 208, 255, 0.5);
+  padding-left: 10px;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tabs button {
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--muted);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.tabs button:hover { color: var(--text); }
+
+.tabs button[aria-current="true"] {
+  background: rgba(192, 139, 255, 0.16);
+  border-color: rgba(192, 139, 255, 0.55);
+  color: var(--accent);
+}
+
+.tabs button:focus-visible,
+.topbar a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.blurb {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 6px 14px 12px;
+  margin-bottom: 18px;
+}
+
+.card h2 {
+  font-size: 14px;
+  margin: 12px 0 4px;
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.card .note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+table.board {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+table.board th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  font-weight: 600;
+  padding: 10px 8px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
+}
+
+table.board td {
+  padding: 9px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+table.board tr:last-child td { border-bottom: none; }
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rank {
+  width: 34px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+tr.top1 .rank, tr.top1 td.score { color: var(--gold); font-weight: 600; }
+tr.top2 .rank { color: #cfd8e3; }
+tr.top3 .rank { color: #d09a63; }
+
+tr.me td { background: rgba(192, 139, 255, 0.1); }
+tr.me .player::after {
+  content: " you";
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--accent);
+  margin-left: 6px;
+}
+
+tr.pinned td {
+  border-top: 1px dashed rgba(255, 255, 255, 0.2);
+}
+
+td.score { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+td.when { color: var(--muted); font-size: 12px; white-space: nowrap; text-align: right; }
+
+.empty {
+  padding: 18px 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.stat {
+  flex: 1 1 96px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.stat .k {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+}
+
+.stat .v {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+@media (max-width: 520px) {
+  .topbar .tagline { display: none; }
+  table.board { font-size: 13px; }
+  td.when, th.when { display: none; }
+}

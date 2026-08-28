@@ -42,7 +42,10 @@ function digest(sim) {
   mix(sim.duck.x);
   mix(sim.duck.dir);
   mix(sim.duck.alive ? 1 : 0);
-  mix(sim.duck.merged ? 1 : 0);
+  mix(sim.duck.locked ? 1 : 0);
+  mix(sim.duck.lockTicks);
+  mix(sim.duck.overclockTicks);
+  mix(sim.duck.lockerBug ? sim.duck.lockerBug.order + 1 : 0);
   mix(sim.duck.cooldown);
   mix(sim.duck.invuln);
   mix(sim.launchIndex);
@@ -54,13 +57,13 @@ function digest(sim) {
   mix(sim.sweepHits);
   mix(sim.bugsPatched);
   mix(sim.shotsFired);
-  mix(sim.forks);
-  mix(sim.rescues);
+  mix(sim.locks);
+  mix(sim.cures);
   mix(sim.bugs.length);
   for (const b of sim.bugs) {
     mix(b.state); mix(b.x); mix(b.y); mix(b.t);
     mix(b.vx); mix(b.vy); mix(b.fireTimer);
-    mix(b.beamOpen ? 1 : 0); mix(b.holdsDuck ? 1 : 0); mix(b.wantsFork ? 1 : 0);
+    mix(b.beamOpen ? 1 : 0); mix(b.wantsLock ? 1 : 0);
     mix(b.diveSide); mix(b.divePhase); mix(b.returnX); mix(b.returnY);
     mix(b.isSweep ? 1 : 0); mix(b.sweepLane); mix(b.sweepPhase);
   }
@@ -68,8 +71,6 @@ function digest(sim) {
   for (const p of sim.patches) { mix(p.x); mix(p.y); }
   mix(sim.bugShots.length);
   for (const s of sim.bugShots) { mix(s.x); mix(s.y); mix(s.vx); mix(s.vy); }
-  mix(sim.rescue ? 1 : 0);
-  if (sim.rescue) { mix(sim.rescue.x); mix(sim.rescue.y); }
   return h >>> 0;
 }
 
@@ -112,19 +113,20 @@ const out = input.cases.map((c) => {
     bugs_patched: sim.bugsPatched,
     shots_fired: sim.shotsFired,
     waves_cleared: sim.wavesCleared,
-    forks: sim.forks,
-    rescues: sim.rescues,
+    locks: sim.locks,
+    cures: sim.cures,
     sweep_hits: sim.sweepHits,
     sweep_total: sim.sweepTotal,
     dives_since_rootkit: sim.divesSinceRootkit,
     duck: [sim.duck.x, sim.duck.dir, sim.duck.alive ? 1 : 0,
-           sim.duck.merged ? 1 : 0, sim.duck.cooldown, sim.duck.invuln],
+           sim.duck.locked ? 1 : 0, sim.duck.lockTicks, sim.duck.overclockTicks,
+           sim.duck.lockerBug ? sim.duck.lockerBug.order + 1 : 0,
+           sim.duck.cooldown, sim.duck.invuln],
     bugs: sim.bugs.map((b) => [b.state, b.x, b.y, b.t, b.vx, b.vy,
-                               b.beamOpen ? 1 : 0, b.holdsDuck ? 1 : 0,
+                               b.beamOpen ? 1 : 0, b.wantsLock ? 1 : 0,
                                b.isSweep ? 1 : 0]),
     patches: sim.patches.map((p) => [p.x, p.y]),
     bug_shots: sim.bugShots.map((s) => [s.x, s.y, s.vx, s.vy]),
-    rescue: sim.rescue ? [sim.rescue.x, sim.rescue.y] : null,
     inputs: sim.inputs,
     trail,
   };

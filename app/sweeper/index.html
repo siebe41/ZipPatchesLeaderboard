@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0a0a16">
+<meta name="description" content="Patch Sweeper. Clear the legacy debt before it clears you.">
+<title>Patch Sweeper</title>
+<link rel="stylesheet" href="/sweeper/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Patch Sweeper</h1>
+  <span class="tagline">Clear the legacy debt.</span>
+  <span class="spacer"></span>
+  <a href="/sweeper/board">Leaderboard</a>
+</header>
+
+<main class="stage">
+  <canvas id="game" width="720" height="520" aria-label="Patch Sweeper game"></canvas>
+</main>
+
+<footer class="hud">
+  <ul class="legend">
+    <li><i style="background:#c08bff"></i> Monolith</li>
+    <li><i style="background:#8fd0ff"></i> Module</li>
+    <li><i style="background:#ff8fa3"></i> Dependency</li>
+    <li class="hint">Arrows to turn, Up to thrust, Space to fire. M mutes.</li>
+  </ul>
+  <div class="controls">
+    <label for="player">Player</label>
+    <input id="player" autocomplete="off" autocapitalize="words"
+           spellcheck="false" placeholder="Your name" maxlength="60">
+    <button id="post" type="button">Post run</button>
+    <span id="status" class="status"></span>
+  </div>
+</footer>
+
+<script type="module" src="/sweeper/static/game.mjs"></script>
+<noscript><p style="padding:16px;color:#e94560">Patch Sweeper needs JavaScript.</p></noscript>
+</body>
+</html>
