@@ -40,7 +40,7 @@ export const STATE = {
   DEAD: 'dead',         // out of lives, the run is over
 };
 
-/** What a bug is. Only a rootkit can fork the duck. */
+/** What a bug is. Only a rootkit can lock the duck's fire control. */
 export const KIND = { DRONE: 0, WEEVIL: 1, ROOTKIT: 2 };
 const KIND_NAMES = ['drone', 'weevil', 'rootkit'];
 
@@ -124,9 +124,12 @@ function makeDuck() {
     x: PX(fdiv(CONFIG.width, 2)),
     dir: 0,          // -1, 0 or 1; the held steering state
     alive: true,
-    merged: false,
     cooldown: 0,
-    invuln: 0,       // ticks of grace after losing a merge
+    invuln: 0,       // ticks of grace after respawning
+    locked: false,   // fire control encrypted -- can move, cannot shoot
+    lockTicks: 0,    // ticks left before the lock clears itself
+    overclockTicks: 0, // ticks of halved fire cooldown, earned by an early cure
+    lockerBug: null, // the rootkit whose lock this is, while locked
   };
 }
 
@@ -149,7 +152,6 @@ export function createSim(seed) {
     bugs: [],
     patches: [],
     bugShots: [],
-    rescue: null,     // the freed duck falling back to its owner
 
     launchIndex: 0,   // how many bugs have been sent on their entry path
     launchTimer: 0,
@@ -163,8 +165,8 @@ export function createSim(seed) {
     // Totals worth keeping for the board and the player page.
     bugsPatched: 0,
     wavesCleared: 0,
-    forks: 0,
-    rescues: 0,
+    locks: 0,
+    cures: 0,
     shotsFired: 0,
 
     playStartTick: -1,
@@ -232,8 +234,7 @@ function makeBug(sim, kind, col, row, order) {
     divePhase: 0,
     fireTimer: 0,
     beamOpen: false,
-    wantsFork: false,
-    holdsDuck: false,
+    wantsLock: false,
     returnX: 0,
     returnY: 0,
     // Sweep bugs are created mid-wave and removed when they leave, unlike
@@ -298,20 +299,16 @@ function applyAction(sim, action) {
 function fire(sim) {
   const duck = sim.duck;
   if (!duck.alive || sim.state !== STATE.PLAYING) return;
+  if (duck.locked) return;
   if (duck.cooldown > 0) return;
-  const cap = duck.merged ? CONFIG.maxPatchesMerged : CONFIG.maxPatches;
-  if (sim.patches.length >= cap) return;
+  if (sim.patches.length >= CONFIG.maxPatches) return;
 
-  duck.cooldown = CONFIG.patchCooldown;
+  duck.cooldown = duck.overclockTicks > 0
+    ? fdiv(CONFIG.patchCooldown * CONFIG.overclockCooldownPct, 100)
+    : CONFIG.patchCooldown;
   const y = PX(CONFIG.duckY - CONFIG.duckHalfH);
-  if (duck.merged) {
-    sim.patches.push({ x: duck.x - PX(CONFIG.mergedOffset), y });
-    sim.patches.push({ x: duck.x + PX(CONFIG.mergedOffset), y });
-    sim.shotsFired += 2;
-  } else {
-    sim.patches.push({ x: duck.x, y });
-    sim.shotsFired += 1;
-  }
+  sim.patches.push({ x: duck.x, y });
+  sim.shotsFired += 1;
   sim.events.push({ type: 'fire' });
 }
 
@@ -364,7 +361,7 @@ function stepPlaying(sim) {
   if (isSweepWave(sim.wave)) stepSweep(sim); else stepFormation(sim);
   stepBugs(sim);
   stepBugShots(sim);
-  stepRescue(sim);
+  stepLock(sim);
   collide(sim);
   checkWaveOver(sim);
 }
@@ -377,9 +374,8 @@ function stepDuck(sim) {
   if (duck.invuln > 0) duck.invuln--;
   if (!duck.alive) return;
 
-  const half = CONFIG.duckHalfW + (duck.merged ? CONFIG.mergedOffset : 0);
-  const lo = PX(CONFIG.duckMargin + half);
-  const hi = PX(CONFIG.width - CONFIG.duckMargin - half);
+  const lo = PX(CONFIG.duckMargin + CONFIG.duckHalfW);
+  const hi = PX(CONFIG.width - CONFIG.duckMargin - CONFIG.duckHalfW);
   duck.x = clamp(duck.x + duck.dir * CONFIG.duckSpeed, lo, hi);
 }
 
@@ -431,7 +427,7 @@ function stepFormation(sim) {
   const ready = sim.bugs.filter((b) => b.state === BUG.SLOT);
   if (!ready.length) return;
 
-  // Rootkits are rare enough that a uniform pick would hide the fork. Once
+  // Rootkits are rare enough that a uniform pick would hide the lock. Once
   // enough dives have gone by without one, the next diver is a rootkit if one
   // is available -- and the counter only resets when a rootkit actually goes,
   // so a wave whose rootkits are all dead does not stall waiting for them.
@@ -458,13 +454,13 @@ function launchDive(sim, bug, tier) {
   bug.fireTimer = CONFIG.fireEvery;
   bug.vx = 0;
   bug.vy = 0;
-  // A rootkit that still has both hands free may go for the fork instead of
-  // the kill. One that is already carrying a duck never does.
+  // A rootkit may go for a lock attempt instead of the kill, but never while
+  // the duck is already carrying one -- only one lock is active at a time.
   bug.beamOpen = false;
-  bug.wantsFork = bug.kind === KIND.ROOTKIT
-    && !bug.holdsDuck
+  bug.wantsLock = bug.kind === KIND.ROOTKIT
+    && !sim.duck.locked
     && sim.duck.alive
-    && rngInt(sim.rng, 100) < CONFIG.forkChance;
+    && rngInt(sim.rng, 100) < CONFIG.lockChance;
   sim.events.push({ type: 'dive', kind: KIND_NAMES[bug.kind] });
 }
 
@@ -562,13 +558,13 @@ function stepDiving(sim, bug) {
   bug.x += bug.vx;
   bug.y += bug.vy;
 
-  // A fork attempt stops at hover height and opens the beam instead of
+  // A lock attempt stops at hover height and opens the beam instead of
   // continuing into the duck.
-  if (bug.wantsFork && bug.y >= PX(CONFIG.beamHoverY)) {
+  if (bug.wantsLock && bug.y >= PX(CONFIG.beamHoverY)) {
     bug.state = BUG.BEAMING;
     bug.t = 0;
     bug.beamOpen = true;
-    bug.wantsFork = false;
+    bug.wantsLock = false;
     sim.events.push({ type: 'beam' });
     return;
   }
@@ -594,9 +590,9 @@ function stepBeaming(sim, bug) {
   bug.x = clamp(bug.x + bug.vx, PX(24), PX(CONFIG.width - 24));
 
   const duck = sim.duck;
-  if (bug.t > CONFIG.beamWindup && duck.alive && !bug.holdsDuck) {
+  if (bug.t > CONFIG.beamWindup && duck.alive && !duck.locked) {
     if (Math.abs(duck.x - bug.x) <= PX(CONFIG.beamHalfW)) {
-      forkDuck(sim, bug);
+      lockDuck(sim, bug);
     }
   }
 
@@ -659,57 +655,48 @@ function maybeFire(sim, bug, tier) {
   sim.events.push({ type: 'bugfire' });
 }
 
-// --- The fork and the rescue ----------------------------------------------- #
+// --- The lock ---------------------------------------------------------------- #
 
-function forkDuck(sim, bug) {
-  bug.holdsDuck = true;
+function lockDuck(sim, bug) {
   bug.beamOpen = false;
   bug.state = BUG.DIVING;
   bug.t = 0;
-  sim.forks++;
-  sim.events.push({ type: 'fork' });
-  loseDuck(sim, true);
+  const duck = sim.duck;
+  duck.locked = true;
+  duck.lockTicks = CONFIG.lockTicks;
+  duck.lockerBug = bug;
+  sim.locks++;
+  sim.events.push({ type: 'lock' });
 }
 
-function stepRescue(sim) {
-  const r = sim.rescue;
-  if (!r) return;
-  r.y += CONFIG.rescueDropSpeed;
-  if (r.y >= PX(CONFIG.duckY) && sim.duck.alive) {
-    sim.rescue = null;
-    if (!sim.duck.merged) {
-      sim.duck.merged = true;
-      addScore(sim, CONFIG.mergeBonus);
-      sim.rescues++;
-      sim.events.push({ type: 'merge' });
-    }
-    return;
+/**
+ * Counts the lock down, and the overclock that follows curing one early.
+ *
+ * A lock that reaches zero on its own just clears -- no bonus, no penalty
+ * beyond the seconds already spent unable to fire. Curing it early, by
+ * shooting the rootkit holding it, is handled in killBug: that is the only
+ * other way a lock ends before its timer runs out.
+ */
+function stepLock(sim) {
+  const duck = sim.duck;
+  if (duck.overclockTicks > 0) duck.overclockTicks--;
+  if (!duck.locked) return;
+  duck.lockTicks--;
+  if (duck.lockTicks <= 0) {
+    duck.locked = false;
+    duck.lockerBug = null;
+    sim.events.push({ type: 'lockexpired' });
   }
-  if (r.y > PX(CONFIG.height + 20)) sim.rescue = null;
 }
 
 // --- Damage ---------------------------------------------------------------- #
 
-/**
- * The duck was hit, or caught.
- *
- * Being hit while merged costs the merge rather than a life. That is the point
- * of the rescue: it buys one mistake back, and losing it is loud enough that
- * the player knows what it cost them.
- */
-function loseDuck(sim, forked) {
+/** The duck was hit. Locked or not, that always costs a life. */
+function loseDuck(sim) {
   const duck = sim.duck;
   if (!duck.alive || duck.invuln > 0) return;
 
-  if (duck.merged && !forked) {
-    duck.merged = false;
-    duck.invuln = 90;
-    sim.events.push({ type: 'unmerge' });
-    return;
-  }
-
   duck.alive = false;
-  duck.merged = false;
   duck.dir = 0;
   sim.lives--;
   sim.bugShots.length = 0;
@@ -720,7 +707,7 @@ function loseDuck(sim, forked) {
   for (const b of sim.bugs) {
     if (b.state === BUG.DIVING || b.state === BUG.BEAMING) {
       b.beamOpen = false;
-      b.wantsFork = false;
+      b.wantsLock = false;
       b.state = BUG.RETURNING;
       b.t = 0;
       b.returnX = clamp(b.x, PX(20), PX(CONFIG.width - 20));
@@ -778,15 +765,13 @@ function collide(sim) {
 
   if (!duck.alive) return;
 
-  const half = CONFIG.duckHalfW + (duck.merged ? CONFIG.mergedOffset : 0);
-
   // What the bugs fired.
   for (let i = sim.bugShots.length - 1; i >= 0; i--) {
     const s = sim.bugShots[i];
     if (hits(s.x, s.y, CONFIG.bugShotHalfW, CONFIG.bugShotHalfH,
-      duck.x, PX(CONFIG.duckY), half, CONFIG.duckHalfH)) {
+      duck.x, PX(CONFIG.duckY), CONFIG.duckHalfW, CONFIG.duckHalfH)) {
       sim.bugShots.splice(i, 1);
-      loseDuck(sim, false);
+      loseDuck(sim);
       return;
     }
   }
@@ -798,8 +783,8 @@ function collide(sim) {
     if (b.state !== BUG.DIVING && b.state !== BUG.BEAMING && b.state !== BUG.SWEEPING) continue;
     if (b.state === BUG.SWEEPING && b.t < 0) continue;
     if (hits(b.x, b.y, CONFIG.bugHalfW, CONFIG.bugHalfH,
-      duck.x, PX(CONFIG.duckY), half, CONFIG.duckHalfH)) {
-      loseDuck(sim, false);
+      duck.x, PX(CONFIG.duckY), CONFIG.duckHalfW, CONFIG.duckHalfH)) {
+      loseDuck(sim);
       return;
     }
   }
@@ -816,17 +801,16 @@ function killBug(sim, bug) {
 
   if (bug.state === BUG.SWEEPING) sim.sweepHits++;
 
-  // A rootkit carrying a duck gives it back only if it is shot down away from
-  // the formation. Shot while parked, it takes the duck with it -- which is
-  // what makes waiting for it to come to you the right call.
-  if (bug.holdsDuck) {
-    if (diving) {
-      sim.rescue = { x: bug.x, y: bug.y };
-      sim.events.push({ type: 'freed' });
-    } else {
-      sim.events.push({ type: 'lostfork' });
-    }
-    bug.holdsDuck = false;
+  // The rootkit holding the current lock cures it the instant it dies,
+  // wherever it dies -- diving, parked, mid-return, it does not matter. That
+  // is what makes hunting it down worth going in unarmed for.
+  if (bug === sim.duck.lockerBug) {
+    sim.duck.locked = false;
+    sim.duck.lockerBug = null;
+    sim.duck.overclockTicks = CONFIG.overclockTicks;
+    addScore(sim, CONFIG.encryptBonus);
+    sim.cures++;
+    sim.events.push({ type: 'cured' });
   }
 
   bug.state = BUG.DEAD;
@@ -882,7 +866,6 @@ function nextWave(sim) {
   sim.wave++;
   sim.patches.length = 0;
   sim.bugShots.length = 0;
-  sim.rescue = null;
   buildWave(sim);
   sim.state = STATE.PLAYING;
   sim.stateTick = 0;
@@ -924,6 +907,7 @@ export function isOver(sim) {
  */
 export function canFire(sim) {
   const duck = sim.duck;
-  if (!duck.alive || sim.state !== STATE.PLAYING || duck.cooldown > 0) return false;
-  return sim.patches.length < (duck.merged ? CONFIG.maxPatchesMerged : CONFIG.maxPatches);
+  if (!duck.alive || sim.state !== STATE.PLAYING) return false;
+  if (duck.locked || duck.cooldown > 0) return false;
+  return sim.patches.length < CONFIG.maxPatches;
 }

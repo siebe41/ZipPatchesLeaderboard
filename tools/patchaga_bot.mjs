@@ -172,7 +172,7 @@ function main() {
   const human = args.includes('--human');
   // Emits the traces themselves rather than a report, for tools that need runs
   // that got somewhere. Random input dies in the first wave, so it never
-  // reaches a capture, a merged duck or a regression sweep -- which are exactly
+  // reaches a lock, an overclock or a regression sweep -- which are exactly
   // the states a parity check most needs to cover.
   const traces = args.includes('--traces');
   const topUp = flag('--topup', 0);
@@ -199,8 +199,8 @@ function main() {
       cleared: sim.wavesCleared,
       patched: sim.bugsPatched,
       shots: sim.shotsFired,
-      forks: sim.forks,
-      rescues: sim.rescues,
+      locks: sim.locks,
+      cures: sim.cures,
       secs: durationMs(sim) / 1000,
       trace: sim.inputs.length,
       finished: sim.state === STATE.DEAD,
@@ -208,7 +208,7 @@ function main() {
     if (verbose) {
       const r = results[results.length - 1];
       console.log(`seed ${r.seed}: ${r.score} pts, wave ${r.wave}, `
-        + `${r.cleared} cleared, ${r.forks} forks, ${r.rescues} rescues, `
+        + `${r.cleared} cleared, ${r.locks} locks, ${r.cures} cures, `
         + `${(r.patched / Math.max(1, r.shots) * 100).toFixed(0)}% hit, `
         + `${r.secs.toFixed(1)}s, ${r.trace} inputs`);
     }
@@ -222,7 +222,7 @@ function main() {
   console.log(`score      min ${sorted[0]}  median ${median}  max ${sorted[sorted.length - 1]}`);
   console.log(`waves      cleared ${sum((r) => r.cleared)} total, `
     + `best wave ${Math.max(...results.map((r) => r.wave))}`);
-  console.log(`the fork   ${sum((r) => r.forks)} forks, ${sum((r) => r.rescues)} rescues`);
+  console.log(`the lock   ${sum((r) => r.locks)} locks, ${sum((r) => r.cures)} cures`);
   console.log(`length     median ${(results.map((r) => r.secs).sort((a, b) => a - b)[Math.floor(runs / 2)]).toFixed(1)}s, `
     + `longest ${Math.max(...results.map((r) => r.secs)).toFixed(1)}s`);
   console.log(`trace      longest ${Math.max(...results.map((r) => r.trace))} of ${CONFIG.maxInputTrace} allowed`);

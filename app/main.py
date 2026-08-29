@@ -62,6 +62,24 @@ app.include_router(patchman_router)
 from patchaga import router as patchaga_router  # side game, isolated; see README
 app.include_router(patchaga_router)
 
+from ducker import router as ducker_router  # side game, isolated; see README
+app.include_router(ducker_router)
+
+from wall import router as wall_router  # side game, isolated; see README
+app.include_router(wall_router)
+
+from trail import router as trail_router  # side game, isolated; see README
+app.include_router(trail_router)
+
+from sweeper import router as sweeper_router  # side game, isolated; see README
+app.include_router(sweeper_router)
+
+from defender import router as defender_router  # side game, isolated; see README
+app.include_router(defender_router)
+
+from trivia import router as trivia_router  # side game, isolated; see README
+app.include_router(trivia_router)
+
 
 class Payload(BaseModel):
     date: str
@@ -1897,6 +1915,95 @@ ICON_PATCHAGA = (
     '</g></svg>'
 )
 
+ICON_DUCKER = (
+    '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">'
+    '<rect x="0" y="27" width="64" height="4" fill="#44445a"/>'
+    '<rect x="6" y="27" width="10" height="4" fill="#eeeeee" opacity=".5"/>'
+    '<rect x="30" y="27" width="10" height="4" fill="#eeeeee" opacity=".5"/>'
+    '<g class="ico-chase">'
+    '<ellipse cx="47" cy="41" rx="9" ry="6.5" fill="#8ac926"/>'
+    '<rect x="40" y="37" width="2" height="4" fill="#5e9412"/>'
+    '<rect x="45" y="37" width="2" height="4" fill="#5e9412"/>'
+    '<rect x="50" y="37" width="2" height="4" fill="#5e9412"/>'
+    '<circle cx="51" cy="39" r="1.4" fill="#1a1a2e"/>'
+    '</g>'
+    '<g class="ico-bob">'
+    '<ellipse cx="20" cy="19" rx="12" ry="9.5" fill="#ffd23f"/>'
+    '<path d="M9 17l-7 3 7 3z" fill="#ff8c1a"/>'
+    '<circle cx="24" cy="15" r="1.7" fill="#1a1a2e"/>'
+    '</g></svg>'
+)
+
+ICON_WALL = (
+    '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">'
+    '<rect x="4" y="0" width="4" height="40" rx="2" fill="#36a2eb"/>'
+    '<rect x="56" y="24" width="4" height="40" rx="2" fill="#e94560"/>'
+    '<path d="M32 8v48" stroke="#ffffff" stroke-opacity=".12" stroke-width="2"'
+    ' stroke-dasharray="4 5"/>'
+    '<g class="ico-chase"><circle cx="24" cy="30" r="4.4" fill="#ffd23f"/></g>'
+    '</svg>'
+)
+
+ICON_TRAIL = (
+    '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">'
+    '<rect x="42" y="42" width="10" height="10" rx="2" fill="#2b8f7d"/>'
+    '<rect x="30" y="42" width="10" height="10" rx="2" fill="#3ec9b0"/>'
+    '<rect x="18" y="42" width="10" height="10" rx="2" fill="#3ec9b0"/>'
+    '<circle cx="46" cy="18" r="4.4" fill="#1b6ec2"/>'
+    '<path d="M43.4 18.4l1.8 1.8 3-3.6" fill="none" stroke="#4ecca3"'
+    ' stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>'
+    '<g class="ico-bob">'
+    '<ellipse cx="12" cy="30" rx="10.5" ry="8.5" fill="#ffd23f"/>'
+    '<path d="M2 28l-6 3 6 3z" fill="#ff8c1a" transform="translate(6)"/>'
+    '<circle cx="15" cy="27" r="1.5" fill="#1a1a2e"/>'
+    '</g></svg>'
+)
+
+ICON_SWEEPER = (
+    '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">'
+    '<circle cx="14" cy="14" r="2" fill="#ffffff" opacity=".5"/>'
+    '<circle cx="50" cy="10" r="1.4" fill="#ffffff" opacity=".4"/>'
+    '<circle cx="54" cy="46" r="1.6" fill="#ffffff" opacity=".4"/>'
+    '<path d="M46 20l-6 9-4-3-2 9 12-3-3-4z" fill="none" stroke="#8fd0ff"'
+    ' stroke-width="2" stroke-linejoin="round"/>'
+    '<g class="ico-fly">'
+    '<path d="M20 32l7-3-2 4 2 4-7-3-3 5-2-9 2-9z" fill="#c08bff"/>'
+    '</g>'
+    '<g class="ico-bob">'
+    '<path d="M22 46l6-4 4 4-4 4z" fill="#8ac926"/>'
+    '<path d="M25 43l3-2 2 1-4 5z" fill="#ff9f40"/>'
+    '</g></svg>'
+)
+
+ICON_DEFENDER = (
+    '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">'
+    '<rect x="4" y="50" width="12" height="8" rx="2" fill="#8ac926"/>'
+    '<rect x="26" y="50" width="12" height="8" rx="2" fill="#8ac926"/>'
+    '<rect x="48" y="50" width="12" height="8" rx="2" fill="#3a3a44"/>'
+    '<g class="ico-fly">'
+    '<circle cx="46" cy="14" r="2.6" fill="#e94560"/>'
+    '<path d="M46 14l-8 30" stroke="#e94560" stroke-width="1.6"'
+    ' stroke-dasharray="2 3" fill="none"/>'
+    '</g>'
+    '<path d="M30 50l4-22" stroke="#ffd23f" stroke-width="1.6" fill="none"/>'
+    '<circle cx="34" cy="28" r="7" fill="none" stroke="#ffd23f" stroke-width="1.6"/>'
+    '</svg>'
+)
+
+ICON_TRIVIA = (
+    '<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">'
+    '<g class="ico-bob">'
+    '<path d="M14 10h30a6 6 0 0 1 6 6v14a6 6 0 0 1-6 6H30l-10 8v-8h-6a6 6 0 0 1-6-6V16a6 6 0 0 1 6-6z"'
+    ' fill="#ff5da2"/>'
+    '<text x="29" y="30" font-size="20" font-weight="700" fill="#1a0f1a"'
+    ' font-family="Segoe UI, sans-serif" text-anchor="middle">?</text>'
+    '</g>'
+    '<circle cx="48" cy="46" r="7.5" fill="#ffd23f"/>'
+    '<path d="M42 44l-5 2.5 5 2.5z" fill="#ff8c1a"/>'
+    '<circle cx="51" cy="43.5" r="1.4" fill="#1a1a2e"/>'
+    '</svg>'
+)
+
 GAMES = [
     {
         "slug": "flappy",
@@ -1924,6 +2031,61 @@ GAMES = [
         "blurb": "A rubber duck at the bottom of the screen, a formation of bugs "
                  "at the top, and logos in between.",
         "icon": ICON_PATCHAGA,
+    },
+    {
+        "slug": "ducker",
+        "name": "Ducker",
+        "accent": "#8ac926",
+        "tagline": "Patch the highway. Mind the beetles.",
+        "blurb": "A rubber duck crossing a highway of vulnerability beetles and "
+                 "a river of patch notes, one hop at a time.",
+        "icon": ICON_DUCKER,
+    },
+    {
+        "slug": "wall",
+        "name": "Patch Wall",
+        "accent": "#36a2eb",
+        "tagline": "Blue Team versus Red Team, one exploit at a time.",
+        "blurb": "A paddle-and-ball game across the network boundary. Return "
+                 "every exploit, and watch the opponent get sharper each level.",
+        "icon": ICON_WALL,
+    },
+    {
+        "slug": "trail",
+        "name": "Patch Trail",
+        "accent": "#3ec9b0",
+        "tagline": "Deploy patches. Don't tangle the trail.",
+        "blurb": "A duck towing a lengthening chain of deployed patches. Every "
+                 "patch grows the trail, and the trail is the whole hazard.",
+        "icon": ICON_TRAIL,
+    },
+    {
+        "slug": "sweeper",
+        "name": "Patch Sweeper",
+        "accent": "#c08bff",
+        "tagline": "Clear the legacy debt before it clears you.",
+        "blurb": "A duck-drone drifting through open space, breaking legacy "
+                 "monoliths down to modules, then dependencies, then nothing.",
+        "icon": ICON_SWEEPER,
+    },
+    {
+        "slug": "defender",
+        "name": "PatchDefender",
+        "accent": "#8fd0ff",
+        "tagline": "Intercept every zero-day before it lands.",
+        "blurb": "Point defence for the endpoint fleet: click or tap to launch "
+                 "an interceptor and clear the blast radius before impact.",
+        "icon": ICON_DEFENDER,
+    },
+    {
+        "slug": "trivia",
+        "name": "Patchling Trivia",
+        "accent": "#ff5da2",
+        "tagline": "Gather a room. Answer fast, score more.",
+        "blurb": "A live buzzer-style quiz: put this screen up front, everyone "
+                 "else joins from their phone. IT trivia, a little history, "
+                 "and a few questions about these very games.",
+        "icon": ICON_TRIVIA,
     },
 ]
 

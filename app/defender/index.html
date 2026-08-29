@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0a0f1a">
+<meta name="description" content="PatchDefender. Intercept every zero-day before it lands.">
+<title>PatchDefender</title>
+<link rel="stylesheet" href="/defender/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>PatchDefender</h1>
+  <span class="tagline">Intercept every zero-day.</span>
+  <span class="spacer"></span>
+  <a href="/defender/board">Leaderboard</a>
+</header>
+
+<main class="stage">
+  <canvas id="game" width="720" height="520" aria-label="PatchDefender game"></canvas>
+</main>
+
+<footer class="hud">
+  <ul class="legend">
+    <li><i style="background:#e94560"></i> Zero-day</li>
+    <li><i style="background:#ffd23f"></i> Interceptor</li>
+    <li><i style="background:#8ac926"></i> Endpoint</li>
+    <li class="hint">Click or tap to intercept. M mutes.</li>
+  </ul>
+  <div class="controls">
+    <label for="player">Player</label>
+    <input id="player" autocomplete="off" autocapitalize="words"
+           spellcheck="false" placeholder="Your name" maxlength="60">
+    <button id="post" type="button">Post run</button>
+    <span id="status" class="status"></span>
+  </div>
+</footer>
+
+<script type="module" src="/defender/static/game.mjs"></script>
+<noscript><p style="padding:16px;color:#e94560">PatchDefender needs JavaScript.</p></noscript>
+</body>
+</html>

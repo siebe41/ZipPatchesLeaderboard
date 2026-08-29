@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#101425">
+<meta name="description" content="Patch Wall. Blue Team versus Red Team, one exploit at a time.">
+<title>Patch Wall</title>
+<link rel="stylesheet" href="/wall/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Patch Wall</h1>
+  <span class="tagline">Blue Team versus Red Team.</span>
+  <span class="spacer"></span>
+  <a href="/wall/board">Leaderboard</a>
+</header>
+
+<main class="stage">
+  <canvas id="game" width="720" height="480" aria-label="Patch Wall game"></canvas>
+</main>
+
+<footer class="hud">
+  <ul class="legend">
+    <li><i style="background:#36a2eb"></i> Blue Team (you)</li>
+    <li><i style="background:#e94560"></i> Red Team (the exploit's other side)</li>
+    <li class="hint">Arrows or W/S to move. M mutes.</li>
+  </ul>
+  <div class="controls">
+    <label for="player">Player</label>
+    <input id="player" autocomplete="off" autocapitalize="words"
+           spellcheck="false" placeholder="Your name" maxlength="60">
+    <button id="post" type="button">Post run</button>
+    <span id="status" class="status"></span>
+  </div>
+</footer>
+
+<script type="module" src="/wall/static/game.mjs"></script>
+<noscript><p style="padding:16px;color:#e94560">Patch Wall needs JavaScript.</p></noscript>
+</body>
+</html>

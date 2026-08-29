@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#16213e">
+<meta name="description" content="Ducker. Cross the highway of vulnerabilities. Ride the patch notes home.">
+<title>Ducker</title>
+<link rel="stylesheet" href="/ducker/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Ducker</h1>
+  <span class="tagline">Cross the highway. Ride the patch notes home.</span>
+  <span class="spacer"></span>
+  <a href="/ducker/board">Leaderboard</a>
+</header>
+
+<main class="stage">
+  <canvas id="game" width="520" height="560" aria-label="Ducker game"></canvas>
+</main>
+
+<footer class="hud">
+  <ul class="legend">
+    <li><i style="background:#8ac926"></i> Vulnerability beetle</li>
+    <li><i style="background:#a97a4d"></i> Patch-note raft</li>
+    <li><i style="background:#ffd23f"></i> Open endpoint</li>
+    <li class="hint">Arrows or WASD to hop. M mutes.</li>
+  </ul>
+  <div class="controls">
+    <label for="player">Player</label>
+    <input id="player" autocomplete="off" autocapitalize="words"
+           spellcheck="false" placeholder="Your name" maxlength="60">
+    <button id="post" type="button">Post run</button>
+    <span id="status" class="status"></span>
+  </div>
+</footer>
+
+<script type="module" src="/ducker/static/game.mjs"></script>
+<noscript><p style="padding:16px;color:#e94560">Ducker needs JavaScript.</p></noscript>
+</body>
+</html>

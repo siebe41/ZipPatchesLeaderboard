@@ -89,6 +89,17 @@ export function createRenderer(canvas, atlas) {
     }
   }
 
+  /** A thin rung across a body tile, so a stacked column reads as server-rack
+   * rails rather than a plain green pipe. */
+  function drawRackRung(x, y) {
+    ctx.strokeStyle = 'rgba(10, 20, 10, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 3, y + CONFIG.bodyH / 2);
+    ctx.lineTo(x + CONFIG.tileW - 3, y + CONFIG.bodyH / 2);
+    ctx.stroke();
+  }
+
   function drawColumn(ob) {
     const bodyX = Math.round(ob.x);
     const capX = bodyX - (CONFIG.capW - CONFIG.tileW) / 2;
@@ -99,6 +110,7 @@ export function createRenderer(canvas, atlas) {
     atlas.draw(ctx, 'tile_cap_down', capX, top - CONFIG.capH);
     for (let y = top - CONFIG.capH - CONFIG.bodyH; y > -CONFIG.bodyH; y -= CONFIG.bodyH) {
       atlas.draw(ctx, 'tile_body', bodyX, y);
+      drawRackRung(bodyX, y);
     }
 
     // Below the gap: cap, then body tiles down to the ground, clipped so the
@@ -108,6 +120,7 @@ export function createRenderer(canvas, atlas) {
       const h = Math.min(CONFIG.bodyH, CONFIG.groundY - y);
       const f = atlas.frame('tile_body');
       ctx.drawImage(atlas.image, f.x, f.y, f.w, h, bodyX, y, f.w, h);
+      if (h > CONFIG.bodyH / 2) drawRackRung(bodyX, y);
     }
 
     // The version label sits above the top cap, on a plate so it reads against

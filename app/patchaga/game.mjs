@@ -477,10 +477,10 @@ function drainEvents(sim) {
         burst(ev.x, ev.y, POP_COLOR[ev.kind] || '#8fd0ff');
         popup(String(ev.points), ev.x, ev.y, POP_COLOR[ev.kind] || '#8fd0ff');
         break;
-      case 'merge':
-        audio.play('merge');
+      case 'cured':
+        audio.play('cured');
         view.flash = 0.5;
-        popup('+' + CONFIG.mergeBonus, sim.duck.x, CONFIG.duckY * CONFIG.unit,
+        popup('+' + CONFIG.encryptBonus, sim.duck.x, CONFIG.duckY * CONFIG.unit,
           '#ffd23f');
         break;
       case 'perfect':
@@ -494,17 +494,10 @@ function drainEvents(sim) {
         view.shake = 7;
         view.flash = 0.6;
         break;
-      case 'fork':
-        audio.play('fork');
+      case 'lock':
+        audio.play('lock');
         view.shake = 5;
-        popup('FORKED', sim.duck.x, CONFIG.duckY * CONFIG.unit, '#ff6b4a');
-        break;
-      case 'freed':
-        audio.play('freed');
-        view.flash = 0.35;
-        break;
-      case 'lostfork':
-        audio.play('unmerge');
+        popup('ENCRYPTED', sim.duck.x, CONFIG.duckY * CONFIG.unit, '#ff4d5e');
         break;
       case 'clear':
         audio.play('clear');
@@ -516,7 +509,7 @@ function drainEvents(sim) {
         break;
       default:
         // Everything left is a plain sound: fire, enter, dive, sweep, beam,
-        // bugfire, unmerge, respawn, gameover.
+        // bugfire, lockexpired, respawn, gameover.
         audio.play(ev.type);
         break;
     }

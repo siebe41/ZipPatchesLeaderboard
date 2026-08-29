@@ -192,7 +192,7 @@ _conn.execute(
         wave        INTEGER,
         bugs        INTEGER,
         shots       INTEGER,
-        rescues     INTEGER,
+        rescues     INTEGER,  -- cures, now; column name kept for schema stability
         flags       TEXT
     )
     """
@@ -482,7 +482,7 @@ def player_summary(name):
     totals = _rows(
         "SELECT COUNT(*) AS runs, COALESCE(SUM(score), 0) AS total, "
         "COALESCE(MAX(score), 0) AS best, COALESCE(SUM(bugs), 0) AS bugs, "
-        "COALESCE(SUM(rescues), 0) AS rescues, "
+        "COALESCE(SUM(rescues), 0) AS cures, "
         "COALESCE(MAX(wave), 0) AS furthest FROM patchaga_runs "
         "WHERE player_key = ? AND verified = 1",
         (key,),
@@ -500,7 +500,7 @@ def player_summary(name):
             (r["rank"] for r in board_rows(view) if r["player_key"] == key), None)
 
     recent = _rows(
-        "SELECT score, duration_ms, wave, bugs, rescues, created_at "
+        "SELECT score, duration_ms, wave, bugs, rescues AS cures, created_at "
         "FROM patchaga_runs "
         "WHERE player_key = ? AND verified = 1 ORDER BY id DESC LIMIT 10",
         (key,),
@@ -513,7 +513,7 @@ def player_summary(name):
         "total": totals["total"],
         "best": totals["best"],
         "bugs": totals["bugs"],
-        "rescues": totals["rescues"],
+        "cures": totals["cures"],
         "furthest_wave": totals["furthest"],
         "best_season": best_in(_bounds_for("season")),
         "best_today": best_in(_bounds_for("today")),
@@ -582,13 +582,11 @@ DUCK_SPEED = 56
 DUCK_HALF_W = 7
 DUCK_HALF_H = 6
 DUCK_MARGIN = 14
-MERGED_OFFSET = 11
 
 PATCH_SPEED = 416
 PATCH_HALF_W = 4
 PATCH_HALF_H = 6
 MAX_PATCHES = 3
-MAX_PATCHES_MERGED = 6
 PATCH_COOLDOWN = 13
 
 BUG_SHOT_SPEED = 68
@@ -638,9 +636,11 @@ BEAM_TICKS = 200
 BEAM_WINDUP = 46
 BEAM_HALF_W = 22
 BEAM_HOVER_Y = 300
-FORK_CHANCE = 45
-RESCUE_DROP_SPEED = 62
-MERGE_BONUS = 1000
+LOCK_CHANCE = 45
+LOCK_TICKS = 300
+OVERCLOCK_TICKS = 360
+OVERCLOCK_COOLDOWN_PCT = 50
+ENCRYPT_BONUS = 1000
 
 SWEEP_EVERY = 4
 SWEEP_GROUPS = 5
@@ -756,7 +756,7 @@ class _Bug:
     __slots__ = (
         "kind", "col", "row", "order", "state", "x", "y", "entry_x", "entry_y",
         "bulge_x", "bulge_y", "vx", "vy", "t", "dive_side", "dive_phase",
-        "fire_timer", "beam_open", "wants_fork", "holds_duck", "return_x",
+        "fire_timer", "beam_open", "wants_lock", "return_x",
         "return_y", "is_sweep", "sweep_from_left", "sweep_lane", "sweep_phase",
     )
 
@@ -782,8 +782,7 @@ class _Bug:
         self.dive_phase = 0
         self.fire_timer = 0
         self.beam_open = False
-        self.wants_fork = False
-        self.holds_duck = False
+        self.wants_lock = False
         self.return_x = 0
         self.return_y = 0
         self.is_sweep = False
@@ -793,15 +792,21 @@ class _Bug:
 
 
 class _Duck:
-    __slots__ = ("x", "dir", "alive", "merged", "cooldown", "invuln")
+    __slots__ = (
+        "x", "dir", "alive", "cooldown", "invuln",
+        "locked", "lock_ticks", "overclock_ticks", "locker_bug",
+    )
 
     def __init__(self):
         self.x = _px(WIDTH // 2)
         self.dir = 0
         self.alive = True
-        self.merged = False
         self.cooldown = 0
         self.invuln = 0
+        self.locked = False
+        self.lock_ticks = 0
+        self.overclock_ticks = 0
+        self.locker_bug = None
 
 
 class Sim:
@@ -823,7 +828,6 @@ class Sim:
         self.bugs = []
         self.patches = []      # each a [x, y]
         self.bug_shots = []    # each a [x, y, vx, vy]
-        self.rescue = None     # [x, y] of the freed duck falling home
 
         self.launch_index = 0
         self.launch_timer = 0
@@ -836,8 +840,8 @@ class Sim:
 
         self.bugs_patched = 0
         self.waves_cleared = 0
-        self.forks = 0
-        self.rescues = 0
+        self.locks = 0
+        self.cures = 0
         self.shots_fired = 0
 
         self.play_start_tick = -1
@@ -914,21 +918,20 @@ class Sim:
         duck = self.duck
         if not duck.alive or self.state != S_PLAYING:
             return
+        if duck.locked:
+            return
         if duck.cooldown > 0:
             return
-        cap = MAX_PATCHES_MERGED if duck.merged else MAX_PATCHES
-        if len(self.patches) >= cap:
+        if len(self.patches) >= MAX_PATCHES:
             return
 
-        duck.cooldown = PATCH_COOLDOWN
+        duck.cooldown = (
+            (PATCH_COOLDOWN * OVERCLOCK_COOLDOWN_PCT) // 100
+            if duck.overclock_ticks > 0 else PATCH_COOLDOWN
+        )
         y = _px(DUCK_Y - DUCK_HALF_H)
-        if duck.merged:
-            self.patches.append([duck.x - _px(MERGED_OFFSET), y])
-            self.patches.append([duck.x + _px(MERGED_OFFSET), y])
-            self.shots_fired += 2
-        else:
-            self.patches.append([duck.x, y])
-            self.shots_fired += 1
+        self.patches.append([duck.x, y])
+        self.shots_fired += 1
 
     # --- The step --------------------------------------------------------- #
 
@@ -969,7 +972,7 @@ class Sim:
             self._step_formation()
         self._step_bugs()
         self._step_bug_shots()
-        self._step_rescue()
+        self._step_lock()
         self._collide()
         self._check_wave_over()
 
@@ -981,9 +984,8 @@ class Sim:
             duck.invuln -= 1
         if not duck.alive:
             return
-        half = DUCK_HALF_W + (MERGED_OFFSET if duck.merged else 0)
-        lo = _px(DUCK_MARGIN + half)
-        hi = _px(WIDTH - DUCK_MARGIN - half)
+        lo = _px(DUCK_MARGIN + DUCK_HALF_W)
+        hi = _px(WIDTH - DUCK_MARGIN - DUCK_HALF_W)
         duck.x = _clamp(duck.x + duck.dir * DUCK_SPEED, lo, hi)
 
     def _step_patches(self):
@@ -1057,10 +1059,10 @@ class Sim:
         bug.vx = 0
         bug.vy = 0
         bug.beam_open = False
-        bug.wants_fork = (bug.kind == KIND_ROOTKIT
-                          and not bug.holds_duck
+        bug.wants_lock = (bug.kind == KIND_ROOTKIT
+                          and not self.duck.locked
                           and self.duck.alive
-                          and self._rng_int(100) < FORK_CHANCE)
+                          and self._rng_int(100) < LOCK_CHANCE)
 
     def _step_sweep(self):
         if self.sweep_group >= SWEEP_GROUPS:
@@ -1146,11 +1148,11 @@ class Sim:
         bug.x += bug.vx
         bug.y += bug.vy
 
-        if bug.wants_fork and bug.y >= _px(BEAM_HOVER_Y):
+        if bug.wants_lock and bug.y >= _px(BEAM_HOVER_Y):
             bug.state = B_BEAMING
             bug.t = 0
             bug.beam_open = True
-            bug.wants_fork = False
+            bug.wants_lock = False
             return
 
         self._maybe_fire(bug, tier)
@@ -1168,9 +1170,9 @@ class Sim:
         bug.x = _clamp(bug.x + bug.vx, _px(24), _px(WIDTH - 24))
 
         duck = self.duck
-        if bug.t > BEAM_WINDUP and duck.alive and not bug.holds_duck:
+        if bug.t > BEAM_WINDUP and duck.alive and not duck.locked:
             if abs(duck.x - bug.x) <= _px(BEAM_HALF_W):
-                self._fork_duck(bug)
+                self._lock_duck(bug)
 
         if bug.t >= BEAM_TICKS:
             bug.beam_open = False
@@ -1225,45 +1227,37 @@ class Sim:
             (BUG_SHOT_SPEED * icos(lean)) // SIN_SCALE,
         ])
 
-    # --- The fork and the rescue ------------------------------------------ #
+    # --- The lock ----------------------------------------------------------- #
 
-    def _fork_duck(self, bug):
-        bug.holds_duck = True
+    def _lock_duck(self, bug):
         bug.beam_open = False
         bug.state = B_DIVING
         bug.t = 0
-        self.forks += 1
-        self._lose_duck(True)
+        duck = self.duck
+        duck.locked = True
+        duck.lock_ticks = LOCK_TICKS
+        duck.locker_bug = bug
+        self.locks += 1
 
-    def _step_rescue(self):
-        r = self.rescue
-        if r is None:
+    def _step_lock(self):
+        duck = self.duck
+        if duck.overclock_ticks > 0:
+            duck.overclock_ticks -= 1
+        if not duck.locked:
             return
-        r[1] += RESCUE_DROP_SPEED
-        if r[1] >= _px(DUCK_Y) and self.duck.alive:
-            self.rescue = None
-            if not self.duck.merged:
-                self.duck.merged = True
-                self._add_score(MERGE_BONUS)
-                self.rescues += 1
-            return
-        if r[1] > _px(HEIGHT + 20):
-            self.rescue = None
+        duck.lock_ticks -= 1
+        if duck.lock_ticks <= 0:
+            duck.locked = False
+            duck.locker_bug = None
 
     # --- Damage ----------------------------------------------------------- #
 
-    def _lose_duck(self, forked):
+    def _lose_duck(self):
         duck = self.duck
         if not duck.alive or duck.invuln > 0:
             return
 
-        if duck.merged and not forked:
-            duck.merged = False
-            duck.invuln = 90
-            return
-
         duck.alive = False
-        duck.merged = False
         duck.dir = 0
         self.lives -= 1
         self.bug_shots = []
@@ -1271,7 +1265,7 @@ class Sim:
         for b in self.bugs:
             if b.state in (B_DIVING, B_BEAMING):
                 b.beam_open = False
-                b.wants_fork = False
+                b.wants_lock = False
                 b.state = B_RETURNING
                 b.t = 0
                 b.return_x = _clamp(b.x, _px(20), _px(WIDTH - 20))
@@ -1321,14 +1315,12 @@ class Sim:
         if not duck.alive:
             return
 
-        half = DUCK_HALF_W + (MERGED_OFFSET if duck.merged else 0)
-
         for i in range(len(self.bug_shots) - 1, -1, -1):
             s = self.bug_shots[i]
             if _hits(s[0], s[1], BUG_SHOT_HALF_W, BUG_SHOT_HALF_H,
-                     duck.x, _px(DUCK_Y), half, DUCK_HALF_H):
+                     duck.x, _px(DUCK_Y), DUCK_HALF_W, DUCK_HALF_H):
                 self.bug_shots.pop(i)
-                self._lose_duck(False)
+                self._lose_duck()
                 return
 
         for b in self.bugs:
@@ -1337,8 +1329,8 @@ class Sim:
             if b.state == B_SWEEPING and b.t < 0:
                 continue
             if _hits(b.x, b.y, BUG_HALF_W, BUG_HALF_H,
-                     duck.x, _px(DUCK_Y), half, DUCK_HALF_H):
-                self._lose_duck(False)
+                     duck.x, _px(DUCK_Y), DUCK_HALF_W, DUCK_HALF_H):
+                self._lose_duck()
                 return
 
     def _kill_bug(self, bug):
@@ -1350,10 +1342,12 @@ class Sim:
         if bug.state == B_SWEEPING:
             self.sweep_hits += 1
 
-        if bug.holds_duck:
-            if diving:
-                self.rescue = [bug.x, bug.y]
-            bug.holds_duck = False
+        if bug is self.duck.locker_bug:
+            self.duck.locked = False
+            self.duck.locker_bug = None
+            self.duck.overclock_ticks = OVERCLOCK_TICKS
+            self._add_score(ENCRYPT_BONUS)
+            self.cures += 1
 
         bug.state = B_DEAD
         bug.beam_open = False
@@ -1393,7 +1387,6 @@ class Sim:
         self.wave += 1
         self.patches = []
         self.bug_shots = []
-        self.rescue = None
         self._build_wave()
         self.state = S_PLAYING
         self.state_tick = 0
@@ -2057,7 +2050,7 @@ def submit_score(payload: ScoreIn, request: Request):
         (canonical, key, score, int(session["seed"]), duration,
          json.dumps(sim.inputs[:MAX_INPUT_TRACE]), _utc_stamp(), verified,
          session["id"], elapsed, len(sim.inputs), sim.wave, sim.bugs_patched,
-         sim.shots_fired, sim.rescues, json.dumps(flags)),
+         sim.shots_fired, sim.cures, json.dumps(flags)),
     )
     prune_traces()
 
@@ -2080,7 +2073,7 @@ def submit_score(payload: ScoreIn, request: Request):
         "score": score,
         "wave": sim.wave,
         "bugs": sim.bugs_patched,
-        "rescues": sim.rescues,
+        "cures": sim.cures,
         "rank": rank,
         "personal_best": score > previous,
         "previous_best": previous,

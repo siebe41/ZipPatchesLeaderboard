@@ -53,14 +53,26 @@ HOUSE_INTERIOR = {"left": 11, "right": 15, "top": 16, "bottom": 17}
 # than a mirroring rule.
 CLOSED_SPANS = (
     # (col_from, col_to, row_from, row_to)
-    (2, 4, 5, 5), (22, 24, 5, 5),        # merge the top-left and top-right chips
-    (5, 5, 6, 8), (21, 21, 6, 8),        # two wide chips under them
-    (9, 9, 2, 4), (17, 17, 2, 4),        # short verticals off the top corridor
-    (10, 16, 6, 13),                     # one big chip filling the space above the house
-    (5, 5, 15, 18), (21, 21, 15, 18),    # the lanes level with the house
-    (6, 8, 19, 19), (18, 20, 19, 19),    # long approaches beside the house
-    (9, 9, 20, 23), (17, 17, 20, 23),    # wide chips flanking the lower centre
-    (2, 4, 24, 24), (22, 24, 24, 24),    # merge the bottom corner chips
+    # Between corridor rows 1 and 5 (rows 2-4): the top verticals sit on
+    # columns 6-8/18-20 rather than 9/17, widening the top blocks.
+    (6, 8, 2, 4), (18, 20, 2, 4),
+    # Between rows 5 and 9 (rows 6-8): columns 9/17 close here instead of
+    # 5/21, giving a different silhouette from the outer-vertical original.
+    (9, 9, 6, 8), (17, 17, 6, 8),
+    # Between rows 9 and 14 (rows 10-13), crossing corridor col 13 and
+    # corridor row 9 at cols 11-15: a block above the house, narrower and
+    # shifted from the original's 10-16 span.
+    (11, 15, 10, 13),
+    (13, 13, 10, 13),
+    # The lanes level with the house (rows 15-18) run along col 9/17 instead
+    # of col 5/21 -- a tighter approach to the house than the original.
+    (9, 9, 15, 18), (17, 17, 15, 18),
+    # Between rows 19 and 24 (rows 20-23): the verticals flanking the lower
+    # centre swap from columns 9/17 to columns 5/21.
+    (5, 5, 20, 23), (21, 21, 20, 23),
+    # Between rows 24 and 29 (rows 25-28): the outer corners close fully,
+    # rather than merging a single row the way the original did.
+    (2, 4, 25, 28), (22, 24, 25, 28),
     (13, 13, 25, 28),                    # the centre column stops above the base
 )
 

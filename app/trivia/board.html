@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1a0f1a">
+<meta name="description" content="Patchling Trivia leaderboard.">
+<title>Patchling Trivia leaderboard</title>
+<link rel="stylesheet" href="/trivia/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Patchling Trivia</h1>
+  <span class="tagline">Leaderboard</span>
+  <span class="spacer"></span>
+  <a href="/trivia">Host</a>
+</header>
+
+<main class="wrap">
+  <section class="card">
+    <h2>Best individual scores, all time</h2>
+    <table class="board">
+      <thead><tr><th class="rank">#</th><th>Player</th><th class="num">Score</th><th class="num">Correct</th><th class="when">When</th></tr></thead>
+      <tbody id="top"></tbody>
+    </table>
+    <p class="empty" id="topEmpty" hidden>No games finished yet. Gather a room and start one.</p>
+  </section>
+
+  <section class="card">
+    <h2>Recent games</h2>
+    <table class="board">
+      <thead><tr><th class="rank">Placed</th><th>Player</th><th class="num">Score</th><th class="num">Correct</th><th class="when">When</th></tr></thead>
+      <tbody id="recent"></tbody>
+    </table>
+    <p class="empty" id="recentEmpty" hidden>No games finished yet.</p>
+  </section>
+</main>
+
+<script type="module" src="/trivia/static/board.mjs"></script>
+<noscript><p style="padding:16px;color:#e94560">The board needs JavaScript.</p></noscript>
+</body>
+</html>

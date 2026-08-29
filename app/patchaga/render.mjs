@@ -363,6 +363,45 @@ export function createRenderer(canvas, logo) {
     ctx.globalAlpha = 1;
   }
 
+  /** A pulsing ring on the rootkit currently holding the duck's lock. */
+  function drawLockTarget(x, y, nowMs) {
+    const pulse = 0.5 + Math.sin(nowMs / 130) * 0.5;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255, 77, 94, ${(0.5 + pulse * 0.4).toFixed(3)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, 13 + pulse * 2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** A small flickering padlock over the duck while its fire control is locked. */
+  function drawLockBadge(x, y, nowMs) {
+    if (Math.sin(nowMs / 45) <= -0.3) return;
+    ctx.save();
+    ctx.translate(x, y - 17);
+    ctx.strokeStyle = '#ff4d5e';
+    ctx.fillStyle = '#ff4d5e';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(0, -1, 2.6, Math.PI, 0, false);
+    ctx.stroke();
+    ctx.fillRect(-3.4, -1, 6.8, 5.4);
+    ctx.restore();
+  }
+
+  /** A soft pulsing halo while the duck's fire rate is overclocked. */
+  function drawOverclockGlow(x, y, nowMs) {
+    const pulse = 0.6 + Math.sin(nowMs / 80) * 0.4;
+    ctx.save();
+    ctx.globalAlpha = 0.35 * pulse;
+    ctx.fillStyle = '#4fd6e8';
+    ctx.beginPath();
+    ctx.arc(x, y, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
   function drawHud(sim, view) {
     ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
     ctx.fillRect(0, 0, CONFIG.width, CONFIG.hudTop);
@@ -529,15 +568,9 @@ export function createRenderer(canvas, logo) {
       if (bug.beamOpen) drawBeam(sim, bug, nowMs);
       const inSlot = bug.state === BUG.SLOT;
       drawBug(bx, by, bug.kind, sim.tick / 9 + bug.order, !inSlot && by < 0);
-      // A captured duck rides under the rootkit that took it, so the player can
-      // see what they are shooting at and why it is worth the risk.
-      if (bug.holdsDuck) drawDuck(bx, by + 16, 0, 0.85, 0.95);
-    }
-
-    // A freed duck falling home
-    if (sim.rescue) {
-      drawDuck(sim.rescue.x / U, sim.rescue.y / U,
-        Math.sin(nowMs / 90) * 0.5, 0.9, 0.95);
+      // The rootkit currently holding the lock gets a target ring, so the
+      // player knows which one to shoot to cure it early.
+      if (bug === sim.duck.lockerBug) drawLockTarget(bx, by, nowMs);
     }
 
     // Bug fire
@@ -562,12 +595,9 @@ export function createRenderer(canvas, logo) {
       const vis = duck.invuln > 0 ? (Math.floor(nowMs / 90) % 2 === 0) : true;
       if (vis) {
         const lean = duck.dir;
-        if (duck.merged) {
-          drawDuck(dx - CONFIG.mergedOffset, CONFIG.duckY, lean);
-          drawDuck(dx + CONFIG.mergedOffset, CONFIG.duckY, lean);
-        } else {
-          drawDuck(dx, CONFIG.duckY, lean);
-        }
+        if (duck.overclockTicks > 0) drawOverclockGlow(dx, CONFIG.duckY, nowMs);
+        drawDuck(dx, CONFIG.duckY, lean);
+        if (duck.locked) drawLockBadge(dx, CONFIG.duckY, nowMs);
       }
     }
 
