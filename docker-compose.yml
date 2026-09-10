@@ -39,4 +39,6 @@ services:
     # --- Hidden admin score-adjust page (unlinked; excluded from /docs) ---
     #   ZS_ADMIN_PATH: "/backstage"               # URL of the hidden adjust page
     #   ZS_ADMIN_TOKEN: ""                        # if set, page+APIs require ?token=...
+    # --- Hidden joke page (unlinked; excluded from /docs) ---
+    #   ZS_ANDREWGPT_PATH: "/andrewgpt"           # URL of the hidden insult bot
     restart: unless-stopped
