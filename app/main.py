@@ -2809,3 +2809,166 @@ $("date").addEventListener("change",renderDay);
 document.addEventListener("DOMContentLoaded",loadHistory);
 </script>
 </body></html>"""
+
+# Hidden joke page: AndrewGPT, an "AI" that insults whoever's asking.
+# ---------------------------------------------------------------------------
+# Not linked anywhere in the UI and excluded from the OpenAPI schema (/docs).
+# The URL path is configurable via ZS_ANDREWGPT_PATH (default "/andrewgpt").
+# It doesn't read the question at all beyond occasionally quoting it back in
+# a burn -- there is no model here, just a big bag of one-liners.
+# =========================================================================== #
+
+ZS_ANDREWGPT_PATH = (os.environ.get("ZS_ANDREWGPT_PATH", "/andrewgpt").rstrip("/") or "/andrewgpt")
+
+ANDREWGPT_LINES = [
+    "Oh good, you're back. I was almost starting to respect the silence.",
+    "That question just lowered the server's IQ. Please don't do it again.",
+    "I've seen better decision-making from the RNG in Patch Sweeper.",
+    "Bold of you to assume I care what you're asking.",
+    "You have the energy of someone who reads \"Patch Tuesday\" as a suggestion.",
+    "I ran a CVE scan on that question. It's a 10.0. Critical embarrassment.",
+    "Somewhere, a rubber duck is disappointed in you, and rubber ducks have famously low standards.",
+    "That's not a question, that's a cry for help with extra steps.",
+    "I'd explain why that was a bad question, but I don't do charity work.",
+    "Your input has been logged, ignored, and quietly judged.",
+    "I've met zero-day exploits with more self-awareness than you.",
+    "Ask again when you've had at least one good idea today.",
+    "That question had fewer redeeming qualities than a penalty day.",
+    "I'm an AI insult bot and even I think that was rough.",
+    "You bring the same energy to questions that you bring to code review: none.",
+    "Somewhere, a WSUS server just sighed.",
+    "I've patched worse bugs than that question, and that's genuinely saying something.",
+    "Legendary. Truly the ILOVEYOU virus of questions -- everyone regrets opening it.",
+    "You could've asked a real AI. You chose violence against yourself instead.",
+    "That question's CVSS score is \"catastrophic, but only for your dignity.\"",
+    "I've seen more thoughtful input from the trivia bot's random number generator.",
+    "Honestly? Inspiring. Inspiring how consistently unimpressive you are.",
+    "I'm going to need you to try again, but with effort this time.",
+    "That's the kind of question that gets you excused from the leaderboard permanently.",
+    "Somewhere, your GitHub contribution graph just went a little more gray.",
+    "I'd roast you harder but I don't want to peak too early in this conversation.",
+    "You ask questions the way you patch systems: rarely, and badly.",
+    "Even the Morris Worm had more of a plan than you do right now.",
+    "That question is why \"penalty day\" had to become a real feature.",
+    "I've analyzed your input. Verdict: certified, grade-A nonsense.",
+    "This is the digital equivalent of showing up to a fire with a rubber duck.",
+    "I'd say \"no comment,\" but that would be a wasted opportunity to insult you.",
+    "You have a real gift for asking things nobody asked for.",
+    "I've seen phishing emails with more self-respect than that question.",
+    "Statistically, that was the weakest thing to happen on this server today, and this server runs Ducker.",
+]
+
+ANDREWGPT_TEMPLATES = [
+    "\"{q}\"? Incredible. Ransom notes have better structure.",
+    "You typed \"{q}\" like it was going to impress someone. It did not.",
+    "\"{q}\" -- and yet here you are, still not on the leaderboard.",
+    "I ran \"{q}\" through a spell checker and it just wrote back \"why.\"",
+    "\"{q}\"... okay. Anyway, how's the zip count coming along?",
+    "\"{q}\" is the most action you've taken since your last excused day.",
+    "I read \"{q}\" out loud and the room got quieter.",
+    "\"{q}\" -- a question so weak even a honeypot wouldn't bother logging it.",
+    "You really went with \"{q}.\" Bold strategy. Doesn't work, but bold.",
+    "\"{q}\"? That's not a question, that's a confession.",
+    "Somewhere, someone smarter than you also thought of \"{q}\" and had the sense not to say it.",
+    "\"{q}\" -- filed under \"things nobody asked for,\" right next to your last commit message.",
+]
+
+
+class AndrewGPTIn(BaseModel):
+    message: str = ""
+
+
+def _andrewgpt_reply(question):
+    q = re.sub(r"\s+", " ", str(question or "")).strip()
+    if q and random.random() < 0.4:
+        snippet = q if len(q) <= 60 else q[:57] + "..."
+        return random.choice(ANDREWGPT_TEMPLATES).format(q=snippet)
+    return random.choice(ANDREWGPT_LINES)
+
+
+def andrewgpt_page():
+    return HTMLResponse(content=ANDREWGPT_HTML)
+
+
+def andrewgpt_ask(payload: AndrewGPTIn):
+    return {"reply": _andrewgpt_reply(payload.message)}
+
+
+app.add_api_route(ZS_ANDREWGPT_PATH, andrewgpt_page, methods=["GET"],
+                  response_class=HTMLResponse, include_in_schema=False)
+app.add_api_route(ZS_ANDREWGPT_PATH + "/api/ask", andrewgpt_ask, methods=["POST"],
+                  include_in_schema=False)
+
+
+ANDREWGPT_HTML = """<!DOCTYPE html><html><head><title>AndrewGPT</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/x-icon" href="/favicon.ico">
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:linear-gradient(135deg,#1a1a2e 0%,#16213e 50%,#0f3460 100%);color:#eee;min-height:100vh;display:flex;flex-direction:column}
+.container{max-width:640px;margin:0 auto;padding:24px;width:100%;flex:1;display:flex;flex-direction:column}
+h1{text-align:center;margin:.2em 0;font-size:2.1em;background:linear-gradient(90deg,#e94560,#ff9a56);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.sub{text-align:center;color:#888;margin-bottom:20px;font-size:.9em}
+.chat{flex:1;min-height:320px;max-height:60vh;overflow-y:auto;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.msg{max-width:80%;padding:10px 14px;border-radius:12px;line-height:1.4;font-size:.95em;white-space:pre-wrap}
+.msg.bot{align-self:flex-start;background:rgba(233,69,96,.15);border:1px solid rgba(233,69,96,.35)}
+.msg.user{align-self:flex-end;background:rgba(54,162,235,.15);border:1px solid rgba(54,162,235,.35)}
+.msg.typing{align-self:flex-start;color:#999;font-style:italic}
+.inputRow{display:flex;gap:10px;margin-top:14px}
+input[type=text]{flex:1;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.15);background:#0f0f1e;color:#eee;font-size:1em}
+button{border:none;border-radius:10px;padding:0 22px;font-size:.95em;font-weight:bold;cursor:pointer;background:#e94560;color:#fff}
+button:hover{opacity:.9}
+button:disabled{opacity:.5;cursor:default}
+</style></head><body><div class="container">
+<h1>AndrewGPT</h1>
+<div class="sub">The only chatbot trained exclusively on group chat trauma. Ask it anything. It will not help.</div>
+<div class="chat" id="chat"></div>
+<div class="inputRow">
+<input type="text" id="box" placeholder="Ask AndrewGPT something..." autocomplete="off" maxlength="200">
+<button id="send" onclick="send()">Send</button>
+</div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const chat=$("chat");
+function bubble(text,cls){
+  const d=document.createElement("div");
+  d.className="msg "+cls;
+  d.textContent=text;
+  chat.appendChild(d);
+  chat.scrollTop=chat.scrollHeight;
+  return d;
+}
+async function ask(message){
+  const r=await fetch("__ANDREWGPT__/api/ask",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({message:message})
+  });
+  const data=await r.json().catch(()=>({reply:"...I got nothing. That's somehow still your fault."}));
+  return data.reply||"...";
+}
+async function send(){
+  const box=$("box");
+  const text=box.value.trim();
+  if(!text)return;
+  bubble(text,"user");
+  box.value="";
+  $("send").disabled=true;
+  const typing=bubble("AndrewGPT is typing...","typing");
+  const reply=await ask(text);
+  await new Promise(res=>setTimeout(res,400+Math.random()*500));
+  typing.remove();
+  bubble(reply,"bot");
+  $("send").disabled=false;
+  box.focus();
+}
+$("box").addEventListener("keydown",e=>{if(e.key==="Enter")send();});
+(async function greet(){
+  const typing=bubble("AndrewGPT is typing...","typing");
+  const reply=await ask("");
+  await new Promise(res=>setTimeout(res,300));
+  typing.remove();
+  bubble(reply,"bot");
+})();
+</script>
+</body></html>""".replace("__ANDREWGPT__", ZS_ANDREWGPT_PATH)
