@@ -2940,12 +2940,16 @@ function bubble(text,cls){
   return d;
 }
 async function ask(message){
-  const r=await fetch("__ANDREWGPT__/api/ask",{
-    method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({message:message})
-  });
-  const data=await r.json().catch(()=>({reply:"...I got nothing. That's somehow still your fault."}));
-  return data.reply||"...";
+  try{
+    const r=await fetch("__ANDREWGPT__/api/ask",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({message:message})
+    });
+    const data=await r.json().catch(()=>({}));
+    return data.reply||"...I got nothing. That's somehow still your fault.";
+  }catch(e){
+    return "Even my insults are broken right now. Try again in a second.";
+  }
 }
 async function send(){
   const box=$("box");
