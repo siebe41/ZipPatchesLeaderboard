@@ -2981,7 +2981,7 @@ $("box").addEventListener("keydown",e=>{if(e.key==="Enter")send();});
 # receipts these are via ZS_ANDREW_NAME (default "Andrew Siebert").
 #
 # For every other player and each category (Zip, Patches) it counts the days
-# Andrew posted a strictly lower score than them (a tie is a loss), and when
+# Andrew posted a score at or below theirs (ties go to Andrew), and when
 # Andrew last did. Only real head-to-heads count, same as daily wins: a penalty
 # or excused day on either side is skipped, as is a 0 in that category (no
 # score posted).
@@ -3071,7 +3071,7 @@ def andrew_beat_records(history, andrew=ZS_ANDREW_NAME):
             continue
         r = rec[field]
         r["meetings"] += 1
-        if mine < theirs:
+        if mine <= theirs:
             r["count"] += 1
             r["last"], r["mine"], r["theirs"] = day, mine, theirs
             if _smoke_tier(mine, theirs):
@@ -3093,7 +3093,7 @@ def andrew_beat_days(history, opponent, andrew=ZS_ANDREW_NAME):
         if mine is None or theirs is None:
             continue
         by_day.setdefault(day, {})[field] = {
-            "mine": mine, "theirs": theirs, "won": mine < theirs, "ratio": theirs / mine,
+            "mine": mine, "theirs": theirs, "won": mine <= theirs, "ratio": theirs / mine,
             "tier": _smoke_tier(mine, theirs) if mine < theirs else None}
     days = []
     for day in sorted(by_day, reverse=True):
@@ -3205,7 +3205,8 @@ def andrew_last_beat_me_page():
     return _andrew_shell('Andrew Last Beat Me', (
         '<h1>Andrew Last Beat Me</h1>'
         '<p class="subtitle">A gentle reminder for anyone getting cocky. Every day ' + esc(ZS_ANDREW_NAME)
-        + ' posted a lower score than you, on the record. Lower is better, ties count as losses, and penalty and excused days don\'t count.</p>'
+        + ' beat you, on the record. Lower is better, ties go to ' + esc(_andrew_first())
+        + ', and penalty and excused days don\'t count.</p>'
         '<div class="pcards">' + cards + '</div>' + table))
 
 
@@ -3219,7 +3220,8 @@ def _andrew_cat_cell(c):
     if c["tier"]:
         tag = ' <span class="smoke-tag ' + c["tier"].lower() + '">' + esc(c["tier"]) + '</span>'
     return ('<td class="win">' + score + tag + '<div class="score">'
-            + esc(f'{c["ratio"]:.1f}') + 'x as long</div></td>')
+            + (esc(f'{c["ratio"]:.1f}') + 'x as long' if c["mine"] < c["theirs"] else 'Tie, goes to '
+               + esc(_andrew_first())) + '</div></td>')
 
 
 def andrew_vs_page(name: str = ""):
@@ -3269,7 +3271,7 @@ def andrew_vs_page(name: str = ""):
 
     return _andrew_shell(ZS_ANDREW_NAME + ' vs ' + player, (
         back + '<h1>' + esc(_andrew_first()) + ' vs ' + esc(player) + '</h1>'
-        '<p class="subtitle">Every day ' + esc(player) + ' got beat, newest first (ties count as losses). Smoked = took at least twice as long; '
+        '<p class="subtitle">Every day ' + esc(player) + ' got beat, newest first (ties go to ' + esc(_andrew_first()) + '). Smoked = took at least twice as long; '
         'Obliterated = three times. <a href="/player?name=' + esc(quote(player)) + '">Full player history</a></p>'
         '<div class="pcards">' + cards + '</div>' + table))
 
