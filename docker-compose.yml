@@ -41,4 +41,6 @@ services:
     #   ZS_ADMIN_TOKEN: ""                        # if set, page+APIs require ?token=...
     # --- Hidden joke page (unlinked; excluded from /docs) ---
     #   ZS_ANDREWGPT_PATH: "/andrewgpt"           # URL of the hidden insult bot
+    #   ZS_ANDREWLASTBEATME_PATH: "/andrewlastbeatme"  # URL of Andrew's head-to-head receipts
+    #   ZS_ANDREW_NAME: "Andrew Siebert"          # whose receipts those are
     restart: unless-stopped

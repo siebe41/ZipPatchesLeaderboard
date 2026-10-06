@@ -2972,3 +2972,133 @@ $("box").addEventListener("keydown",e=>{if(e.key==="Enter")send();});
 })();
 </script>
 </body></html>""".replace("__ANDREWGPT__", ZS_ANDREWGPT_PATH)
+
+# Hidden page: AndrewLastBeatMe -- Andrew's head-to-head receipts.
+# ---------------------------------------------------------------------------
+# Not linked anywhere in the UI and excluded from the OpenAPI schema (/docs).
+# The URL path is configurable via ZS_ANDREWLASTBEATME_PATH (default
+# "/andrewlastbeatme", with "/AndrewLastBeatMe" also accepted) and whose
+# receipts these are via ZS_ANDREW_NAME (default "Andrew Siebert").
+#
+# For every other player and each category (Zip, Patches) it counts the days
+# Andrew posted a strictly lower score than them, and when he last did. Only
+# real head-to-heads count, same as daily wins: a penalty or excused day on
+# either side is skipped, as is a 0 in that category (no score posted).
+# =========================================================================== #
+
+ZS_ANDREWLASTBEATME_PATH = (os.environ.get("ZS_ANDREWLASTBEATME_PATH", "/andrewlastbeatme").rstrip("/")
+                            or "/andrewlastbeatme")
+ZS_ANDREW_NAME = os.environ.get("ZS_ANDREW_NAME", "Andrew Siebert")
+
+ANDREW_BEAT_CATEGORIES = (("zip", "Zip"), ("patch", "Patches"))
+
+
+def _real_score(entry, field):
+    if not isinstance(entry, dict) or entry.get("penalty") or entry.get("excused"):
+        return None
+    score = entry.get(field, 0)
+    return score if isinstance(score, (int, float)) and score > 0 else None
+
+
+def andrew_beat_records(history, andrew=ZS_ANDREW_NAME):
+    """{opponent: {field: {"count", "last", "mine", "theirs", "meetings"}}} for Andrew."""
+    andrew_key = name_key(andrew)
+    records = {}
+    for day in sorted(history):
+        entries = history[day] if isinstance(history[day], dict) else {}
+        mine_entry = next((v for p, v in entries.items() if name_key(p) == andrew_key), None)
+        for player, entry in entries.items():
+            if name_key(player) == andrew_key:
+                continue
+            rec = records.setdefault(player, {f: {"count": 0, "last": None, "mine": None,
+                                                  "theirs": None, "meetings": 0}
+                                              for f, _ in ANDREW_BEAT_CATEGORIES})
+            for field, _ in ANDREW_BEAT_CATEGORIES:
+                mine, theirs = _real_score(mine_entry, field), _real_score(entry, field)
+                if mine is None or theirs is None:
+                    continue
+                r = rec[field]
+                r["meetings"] += 1
+                if mine < theirs:
+                    r["count"] += 1
+                    r["last"], r["mine"], r["theirs"] = day, mine, theirs
+    return records
+
+
+def _days_ago(day):
+    try:
+        delta = (today_local() - datetime.strptime(day, "%Y-%m-%d").date()).days
+    except (TypeError, ValueError):
+        return ""
+    if delta <= 0:
+        return "today"
+    return "yesterday" if delta == 1 else f"{delta} days ago"
+
+
+def andrew_last_beat_me_page():
+    history = load_json(HISTORY_FILE)
+    records = andrew_beat_records(history)
+    rows = sorted(records.items(),
+                  key=lambda kv: (-sum(r["count"] for r in kv[1].values()), kv[0].lower()))
+
+    body = []
+    for player, rec in rows:
+        cells = ['<td class="who"><a href="/player?name=' + quote(player) + '">' + esc(player) + '</a></td>']
+        for field, _ in ANDREW_BEAT_CATEGORIES:
+            r = rec[field]
+            if r["meetings"] == 0:
+                cells.append('<td class="num dim">&ndash;</td><td class="dim">Never faced</td>')
+                continue
+            pct = round(100 * r["count"] / r["meetings"])
+            cells.append('<td class="num">' + str(r["count"]) + '<span class="of"> / '
+                         + str(r["meetings"]) + ' (' + str(pct) + '%)</span></td>')
+            if r["last"]:
+                cells.append('<td>' + esc(r["last"]) + ' <span class="ago">' + esc(_days_ago(r["last"]))
+                             + '</span><div class="score">' + esc(r["mine"]) + ' vs ' + esc(r["theirs"])
+                             + '</div></td>')
+            else:
+                cells.append('<td class="never">Never. Yet.</td>')
+        body.append('<tr>' + ''.join(cells) + '</tr>')
+
+    if body:
+        table = ('<table class="phist"><thead><tr><th>Player</th>'
+                 + ''.join('<th>' + label + ' beats</th><th>Last ' + label + ' beat</th>'
+                           for _, label in ANDREW_BEAT_CATEGORIES)
+                 + '</tr></thead><tbody>' + ''.join(body) + '</tbody></table>')
+    else:
+        table = '<p class="subtitle">No head-to-heads on record yet.</p>'
+
+    totals = {f: sum(rec[f]["count"] for rec in records.values()) for f, _ in ANDREW_BEAT_CATEGORIES}
+    cards = ''.join('<div class="pcard"><div class="pl">Total ' + label + ' beats</div><div class="pv">'
+                    + str(totals[field]) + '</div></div>' for field, label in ANDREW_BEAT_CATEGORIES)
+
+    html_out = ('<!DOCTYPE html><html><head><title>Andrew Last Beat Me</title>'
+                '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<link rel="icon" type="image/x-icon" href="/favicon.ico">' + PLAYER_CSS + ANDREWLASTBEATME_CSS +
+                '</head><body><div class="container">'
+                '<div class="brand"><a href="/"><img src="/logo.png" alt="Zip Patchlings" class="logo"></a></div>'
+                '<h1>Andrew Last Beat Me</h1>'
+                '<p class="subtitle">A gentle reminder for anyone getting cocky. Every day ' + esc(ZS_ANDREW_NAME)
+                + ' posted a lower score than you, on the record. Lower is better; penalty and excused days don\'t count.</p>'
+                '<div class="pcards">' + cards + '</div>' + table + '</div></body></html>')
+    return HTMLResponse(content=html_out)
+
+
+ANDREWLASTBEATME_CSS = """<style>
+.phist td.num{font-weight:bold;color:#4ecca3;white-space:nowrap}
+.phist .of{font-weight:normal;color:#888;font-size:.8em}
+.phist .who a{color:#eee;text-decoration:none;font-weight:bold}
+.phist .who a:hover{color:#4ecca3}
+.phist .ago{color:#888;font-size:.8em}
+.phist .score{color:#888;font-size:.8em;margin-top:2px}
+.phist .never{color:#e94560;font-style:italic}
+.phist .dim{color:#666}
+h1{background:linear-gradient(90deg,#e94560,#ff9a56);-webkit-background-clip:text;background-clip:text}
+@media(max-width:768px){.phist th,.phist td{padding:8px 6px}}
+</style>"""
+
+
+for _path in dict.fromkeys([ZS_ANDREWLASTBEATME_PATH, "/AndrewLastBeatMe"]
+                           if ZS_ANDREWLASTBEATME_PATH == "/andrewlastbeatme" else [ZS_ANDREWLASTBEATME_PATH]):
+    app.add_api_route(_path, andrew_last_beat_me_page, methods=["GET"],
+                      response_class=HTMLResponse, include_in_schema=False)
