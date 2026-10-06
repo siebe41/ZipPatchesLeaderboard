@@ -2981,9 +2981,10 @@ $("box").addEventListener("keydown",e=>{if(e.key==="Enter")send();});
 # receipts these are via ZS_ANDREW_NAME (default "Andrew Siebert").
 #
 # For every other player and each category (Zip, Patches) it counts the days
-# Andrew posted a strictly lower score than them, and when Andrew last did. Only
-# real head-to-heads count, same as daily wins: a penalty or excused day on
-# either side is skipped, as is a 0 in that category (no score posted).
+# Andrew posted a strictly lower score than them (a tie is a loss), and when
+# Andrew last did. Only real head-to-heads count, same as daily wins: a penalty
+# or excused day on either side is skipped, as is a 0 in that category (no
+# score posted).
 # Clicking a player opens <path>/vs?name=..., every day Andrew beat them, with
 # a roast on the days they got smoked (see ANDREW_SMOKE_TIERS).
 # =========================================================================== #
@@ -3204,7 +3205,7 @@ def andrew_last_beat_me_page():
     return _andrew_shell('Andrew Last Beat Me', (
         '<h1>Andrew Last Beat Me</h1>'
         '<p class="subtitle">A gentle reminder for anyone getting cocky. Every day ' + esc(ZS_ANDREW_NAME)
-        + ' posted a lower score than you, on the record. Lower is better; penalty and excused days don\'t count.</p>'
+        + ' posted a lower score than you, on the record. Lower is better, ties count as losses, and penalty and excused days don\'t count.</p>'
         '<div class="pcards">' + cards + '</div>' + table))
 
 
@@ -3268,7 +3269,7 @@ def andrew_vs_page(name: str = ""):
 
     return _andrew_shell(ZS_ANDREW_NAME + ' vs ' + player, (
         back + '<h1>' + esc(_andrew_first()) + ' vs ' + esc(player) + '</h1>'
-        '<p class="subtitle">Every day ' + esc(player) + ' got beat, newest first. Smoked = took at least twice as long; '
+        '<p class="subtitle">Every day ' + esc(player) + ' got beat, newest first (ties count as losses). Smoked = took at least twice as long; '
         'Obliterated = three times. <a href="/player?name=' + esc(quote(player)) + '">Full player history</a></p>'
         '<div class="pcards">' + cards + '</div>' + table))
 
