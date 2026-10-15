@@ -2981,9 +2981,12 @@ $("box").addEventListener("keydown",e=>{if(e.key==="Enter")send();});
 # receipts these are via ZS_ANDREW_NAME (default "Andrew Siebert").
 #
 # For every other player and each category (Zip, Patches) it counts the days
-# Andrew posted a strictly lower score than them, and when he last did. Only
-# real head-to-heads count, same as daily wins: a penalty or excused day on
-# either side is skipped, as is a 0 in that category (no score posted).
+# Andrew posted a score at or below theirs (ties go to Andrew), and when
+# Andrew last did. Only real head-to-heads count, same as daily wins: a penalty
+# or excused day on either side is skipped, as is a 0 in that category (no
+# score posted).
+# Clicking a player opens <path>/vs?name=..., every day Andrew beat them, with
+# a roast on the days they got smoked (see ANDREW_SMOKE_TIERS).
 # =========================================================================== #
 
 ZS_ANDREWLASTBEATME_PATH = (os.environ.get("ZS_ANDREWLASTBEATME_PATH", "/andrewlastbeatme").rstrip("/")
@@ -3000,29 +3003,136 @@ def _real_score(entry, field):
     return score if isinstance(score, (int, float)) and score > 0 else None
 
 
-def andrew_beat_records(history, andrew=ZS_ANDREW_NAME):
-    """{opponent: {field: {"count", "last", "mine", "theirs", "meetings"}}} for Andrew."""
+# Beats are rated by how many times longer the other player took (theirs / mine)
+# plus a minimum gap, so a 3 vs 6 squeaker doesn't get the full treatment.
+# Worst tier first: (tag, min ratio, min margin).
+ANDREW_SMOKE_TIERS = (("Obliterated", 3.0, 10), ("Smoked", 2.0, 5))
+
+ANDREW_SMOKE_ROASTS = {
+    "Obliterated": [
+        "{mine} vs {theirs} in {cat}. {first} took {x}x as long. Somebody check on them.",
+        "{x}x slower at {cat}. {first} wasn't racing {me}, {first} was racing the sunset.",
+        "{theirs} in {cat}? {me} finished, got a coffee, and came back to watch.",
+        "{first} posted {theirs} in {cat} and still hit send. Respect the confidence, not the score.",
+        "{me} did {cat} in {mine}. {first} did it in {theirs}. That's not a loss, that's a hostage situation.",
+        "{x}x. In {cat}. There are loading screens faster than {first} was that day.",
+        "Somewhere in the {cat} logs that day it just says \"{first}: still thinking.\"",
+        "{first}'s {cat} run is now used in training as a \"what not to do.\"",
+    ],
+    "Smoked": [
+        "{mine} vs {theirs} in {cat}. {first} got lapped.",
+        "Twice as long and change ({x}x) at {cat}. {first} should've stayed in bed.",
+        "{first} brought {theirs} to a {mine} fight in {cat}.",
+        "{me}'s {cat} was done before {first} found the first move.",
+        "{x}x slower at {cat}. Not a close one, {first}. Not even in the same zip code.",
+        "{first} vs {me} at {cat}: {theirs} to {mine}. Write that one down, it's going on the fridge.",
+        "Bold of {first} to post a {theirs} in {cat} on a day {me} was paying attention.",
+        "{cat} went {mine} to {theirs}. {first} was technically present.",
+    ],
+    "sweep": [
+        "Smoked in Zip ({zx}x) AND Patches ({px}x). {first} should log off for the week.",
+        "Both games, both blowouts. {first} got cleaned out top to bottom.",
+        "Zip {zip_mine} vs {zip_theirs}, Patches {patch_mine} vs {patch_theirs}. {first} paid full price for both lessons.",
+        "A double smoking. {first} didn't lose that day so much as get filed.",
+        "{first} lost both games by a mile. {me} would like it noted that this was a warm-up.",
+    ],
+}
+
+
+def _andrew_matchups(history, andrew=ZS_ANDREW_NAME):
+    """Yield (day, opponent, field, mine, theirs) for every real head-to-head, oldest first."""
     andrew_key = name_key(andrew)
-    records = {}
     for day in sorted(history):
         entries = history[day] if isinstance(history[day], dict) else {}
         mine_entry = next((v for p, v in entries.items() if name_key(p) == andrew_key), None)
         for player, entry in entries.items():
             if name_key(player) == andrew_key:
                 continue
-            rec = records.setdefault(player, {f: {"count": 0, "last": None, "mine": None,
-                                                  "theirs": None, "meetings": 0}
-                                              for f, _ in ANDREW_BEAT_CATEGORIES})
             for field, _ in ANDREW_BEAT_CATEGORIES:
                 mine, theirs = _real_score(mine_entry, field), _real_score(entry, field)
-                if mine is None or theirs is None:
-                    continue
-                r = rec[field]
-                r["meetings"] += 1
-                if mine < theirs:
-                    r["count"] += 1
-                    r["last"], r["mine"], r["theirs"] = day, mine, theirs
+                yield day, player, field, mine, theirs
+
+
+def _smoke_tier(mine, theirs):
+    for tag, ratio, margin in ANDREW_SMOKE_TIERS:
+        if theirs >= mine * ratio and theirs - mine >= margin:
+            return tag
+    return None
+
+
+def andrew_beat_records(history, andrew=ZS_ANDREW_NAME):
+    """{opponent: {field: {"count", "last", "mine", "theirs", "meetings", "smoked"}}} for Andrew."""
+    records = {}
+    for day, player, field, mine, theirs in _andrew_matchups(history, andrew):
+        rec = records.setdefault(player, {f: {"count": 0, "last": None, "mine": None,
+                                              "theirs": None, "meetings": 0, "smoked": 0}
+                                          for f, _ in ANDREW_BEAT_CATEGORIES})
+        if mine is None or theirs is None:
+            continue
+        r = rec[field]
+        r["meetings"] += 1
+        if mine <= theirs:
+            r["count"] += 1
+            r["last"], r["mine"], r["theirs"] = day, mine, theirs
+            if _smoke_tier(mine, theirs):
+                r["smoked"] += 1
     return records
+
+
+def andrew_beat_days(history, opponent, andrew=ZS_ANDREW_NAME):
+    """(display name, newest-first days Andrew beat `opponent` in at least one category).
+
+    Each day is {"date", "cats": {field: {"mine", "theirs", "won", "ratio", "tier"}},
+    "sweep", "tier", "roast"}; display name is None when the opponent never appears."""
+    key = name_key(opponent)
+    display, by_day = None, {}
+    for day, player, field, mine, theirs in _andrew_matchups(history, andrew):
+        if name_key(player) != key:
+            continue
+        display = display or player
+        if mine is None or theirs is None:
+            continue
+        by_day.setdefault(day, {})[field] = {
+            "mine": mine, "theirs": theirs, "won": mine <= theirs, "ratio": theirs / mine,
+            "tier": _smoke_tier(mine, theirs) if mine < theirs else None}
+    days = []
+    for day in sorted(by_day, reverse=True):
+        cats = by_day[day]
+        if not any(c["won"] for c in cats.values()):
+            continue
+        row = {"date": day, "cats": cats,
+               "sweep": all(f in cats and cats[f]["won"] for f, _ in ANDREW_BEAT_CATEGORIES)}
+        row["tier"] = next((tag for tag, _, _ in ANDREW_SMOKE_TIERS
+                            if any(c["tier"] == tag for c in cats.values())), None)
+        row["roast"] = _andrew_roast(display, row) if row["tier"] else ""
+        days.append(row)
+    return display, days
+
+
+def _andrew_roast(player, row):
+    """Same roast for the same player and day on every load, so the receipts don't shuffle."""
+    rng = random.Random(name_key(player) + "|" + row["date"])
+    first = (str(player).split() or [str(player)])[0]
+    cats = row["cats"]
+    fmt = lambda n: f"{n:g}"
+    if all(cats.get(f, {}).get("tier") for f, _ in ANDREW_BEAT_CATEGORIES):
+        z, pa = cats["zip"], cats["patch"]
+        return rng.choice(ANDREW_SMOKE_ROASTS["sweep"]).format(
+            me=_andrew_first(), first=first, zx=f"{z['ratio']:.1f}", px=f"{pa['ratio']:.1f}",
+            zip_mine=fmt(z["mine"]), zip_theirs=fmt(z["theirs"]),
+            patch_mine=fmt(pa["mine"]), patch_theirs=fmt(pa["theirs"]))
+    field, c = max(((f, c) for f, c in cats.items() if c["tier"]), key=lambda fc: fc[1]["ratio"])
+    label = dict(ANDREW_BEAT_CATEGORIES)[field]
+    return rng.choice(ANDREW_SMOKE_ROASTS[row["tier"]]).format(
+        me=_andrew_first(), first=first, cat=label, mine=fmt(c["mine"]), theirs=fmt(c["theirs"]), x=f"{c['ratio']:.1f}")
+
+
+def _andrew_first():
+    return (ZS_ANDREW_NAME.split() or ["Andrew"])[0]
+
+
+def _andrew_vs_url(player):
+    return ZS_ANDREWLASTBEATME_PATH + "/vs?name=" + quote(player)
 
 
 def _days_ago(day):
@@ -3035,6 +3145,19 @@ def _days_ago(day):
     return "yesterday" if delta == 1 else f"{delta} days ago"
 
 
+def _andrew_shell(title, body):
+    return HTMLResponse(content=(
+        '<!DOCTYPE html><html><head><title>' + esc(title) + '</title>'
+        '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<link rel="icon" type="image/x-icon" href="/favicon.ico">' + PLAYER_CSS + ANDREWLASTBEATME_CSS +
+        '</head><body><div class="container">'
+        '<div class="brand"><a href="/"><img src="/logo.png" alt="Zip Patchlings" class="logo"></a></div>'
+        + body + '</div>'
+        '<script>document.querySelectorAll("tr[data-href]").forEach(function(r){'
+        'r.addEventListener("click",function(){location.href=r.dataset.href;});});</script>'
+        '</body></html>'))
+
+
 def andrew_last_beat_me_page():
     history = load_json(HISTORY_FILE)
     records = andrew_beat_records(history)
@@ -3043,7 +3166,8 @@ def andrew_last_beat_me_page():
 
     body = []
     for player, rec in rows:
-        cells = ['<td class="who"><a href="/player?name=' + quote(player) + '">' + esc(player) + '</a></td>']
+        href = esc(_andrew_vs_url(player))
+        cells = ['<td class="who"><a href="' + href + '">' + esc(player) + '</a></td>']
         for field, _ in ANDREW_BEAT_CATEGORIES:
             r = rec[field]
             if r["meetings"] == 0:
@@ -3058,47 +3182,134 @@ def andrew_last_beat_me_page():
                              + '</div></td>')
             else:
                 cells.append('<td class="never">Never. Yet.</td>')
-        body.append('<tr>' + ''.join(cells) + '</tr>')
+        smoked = sum(r["smoked"] for r in rec.values())
+        cells.append('<td class="num' + (' hot' if smoked else ' dim') + '">' + str(smoked) + '</td>')
+        body.append('<tr class="go" data-href="' + href + '">' + ''.join(cells) + '</tr>')
 
     if body:
-        table = ('<table class="phist"><thead><tr><th>Player</th>'
+        table = ('<div class="tbl-wrap"><table class="phist"><thead><tr><th>Player</th>'
                  + ''.join('<th>' + label + ' beats</th><th>Last ' + label + ' beat</th>'
                            for _, label in ANDREW_BEAT_CATEGORIES)
-                 + '</tr></thead><tbody>' + ''.join(body) + '</tbody></table>')
+                 + '<th title="Beats where they took at least twice as long">Smoked</th>'
+                 '</tr></thead><tbody>' + ''.join(body) + '</tbody></table></div>'
+                 '<p class="hint">Click a player for every day they got beat.</p>')
     else:
         table = '<p class="subtitle">No head-to-heads on record yet.</p>'
 
     totals = {f: sum(rec[f]["count"] for rec in records.values()) for f, _ in ANDREW_BEAT_CATEGORIES}
     cards = ''.join('<div class="pcard"><div class="pl">Total ' + label + ' beats</div><div class="pv">'
                     + str(totals[field]) + '</div></div>' for field, label in ANDREW_BEAT_CATEGORIES)
+    cards += ('<div class="pcard"><div class="pl">Total smokings</div><div class="pv hot">'
+              + str(sum(r["smoked"] for rec in records.values() for r in rec.values())) + '</div></div>')
 
-    html_out = ('<!DOCTYPE html><html><head><title>Andrew Last Beat Me</title>'
-                '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
-                '<link rel="icon" type="image/x-icon" href="/favicon.ico">' + PLAYER_CSS + ANDREWLASTBEATME_CSS +
-                '</head><body><div class="container">'
-                '<div class="brand"><a href="/"><img src="/logo.png" alt="Zip Patchlings" class="logo"></a></div>'
-                '<h1>Andrew Last Beat Me</h1>'
-                '<p class="subtitle">A gentle reminder for anyone getting cocky. Every day ' + esc(ZS_ANDREW_NAME)
-                + ' posted a lower score than you, on the record. Lower is better; penalty and excused days don\'t count.</p>'
-                '<div class="pcards">' + cards + '</div>' + table + '</div></body></html>')
-    return HTMLResponse(content=html_out)
+    return _andrew_shell('Andrew Last Beat Me', (
+        '<h1>Andrew Last Beat Me</h1>'
+        '<p class="subtitle">A gentle reminder for anyone getting cocky. Every day ' + esc(ZS_ANDREW_NAME)
+        + ' beat you, on the record. Lower is better, ties go to ' + esc(_andrew_first())
+        + ', and penalty and excused days don\'t count.</p>'
+        '<div class="pcards">' + cards + '</div>' + table))
+
+
+def _andrew_cat_cell(c):
+    if c is None:
+        return '<td class="dim">&ndash;</td>'
+    score = esc(f'{c["mine"]:g}') + ' vs ' + esc(f'{c["theirs"]:g}')
+    if not c["won"]:
+        return '<td class="dim">' + score + '<div class="score">' + esc(_andrew_first()) + ' lost this one</div></td>'
+    tag = ''
+    if c["tier"]:
+        tag = ' <span class="smoke-tag ' + c["tier"].lower() + '">' + esc(c["tier"]) + '</span>'
+    return ('<td class="win">' + score + tag + '<div class="score">'
+            + (esc(f'{c["ratio"]:.1f}') + 'x as long' if c["mine"] < c["theirs"] else 'Tie, goes to '
+               + esc(_andrew_first())) + '</div></td>')
+
+
+def andrew_vs_page(name: str = ""):
+    history = load_json(HISTORY_FILE)
+    player, days = andrew_beat_days(history, name)
+    back = '<a class="back" href="' + esc(ZS_ANDREWLASTBEATME_PATH) + '">&larr; Back to the receipts</a>'
+    if player is None:
+        return _andrew_shell('Andrew Last Beat Me', back + '<h1>Who?</h1><p class="subtitle">Nobody called "'
+                             + esc(name) + '" has ever stood next to ' + esc(ZS_ANDREW_NAME)
+                             + ' on the leaderboard. Smart.</p>')
+
+    rec = andrew_beat_records(history).get(player, {})
+    cards = ''
+    for field, label in ANDREW_BEAT_CATEGORIES:
+        r = rec.get(field, {})
+        cards += ('<div class="pcard"><div class="pl">' + label + ' beats</div><div class="pv">'
+                  + str(r.get("count", 0)) + '<span class="of"> / ' + str(r.get("meetings", 0))
+                  + '</span></div></div>')
+    smoked = sum(1 for d in days for c in d["cats"].values() if c["tier"])
+    sweeps = sum(1 for d in days if d["sweep"])
+    cards += ('<div class="pcard"><div class="pl">Times smoked</div><div class="pv hot">' + str(smoked) + '</div></div>'
+              '<div class="pcard"><div class="pl">Clean sweeps</div><div class="pv">' + str(sweeps) + '</div></div>')
+    worst = max(((d, c) for d in days for c in d["cats"].values() if c["won"]),
+                key=lambda dc: dc[1]["ratio"], default=None)
+    if worst:
+        cards += ('<div class="pcard"><div class="pl">Worst beating</div><div class="pv hot">'
+                  + esc(f'{worst[1]["ratio"]:.1f}') + 'x</div><div class="score">' + esc(worst[0]["date"])
+                  + '</div></div>')
+
+    if days:
+        rows = []
+        for d in days:
+            sweep = ' <span class="smoke-tag sweep">Sweep</span>' if d["sweep"] else ''
+            rows.append('<tr' + (' class="smoked-row"' if d["tier"] else '') + '><td>' + esc(d["date"]) + sweep
+                        + '<div class="score">' + esc(_days_ago(d["date"])) + '</div></td>'
+                        + ''.join(_andrew_cat_cell(d["cats"].get(f)) for f, _ in ANDREW_BEAT_CATEGORIES)
+                        + '</tr>')
+            if d["roast"]:
+                rows.append('<tr class="roast-row"><td colspan="' + str(1 + len(ANDREW_BEAT_CATEGORIES))
+                            + '">&#128293; ' + esc(d["roast"]) + '</td></tr>')
+        table = ('<div class="tbl-wrap"><table class="phist"><thead><tr><th>Date</th>'
+                 + ''.join('<th>' + label + ' (Andrew vs them)</th>' for _, label in ANDREW_BEAT_CATEGORIES)
+                 + '</tr></thead><tbody>' + ''.join(rows) + '</tbody></table></div>')
+    else:
+        table = ('<p class="subtitle">' + esc(ZS_ANDREW_NAME) + ' has never beaten ' + esc(player)
+                 + '. Enjoy it while it lasts.</p>')
+
+    return _andrew_shell(ZS_ANDREW_NAME + ' vs ' + player, (
+        back + '<h1>' + esc(_andrew_first()) + ' vs ' + esc(player) + '</h1>'
+        '<p class="subtitle">Every day ' + esc(player) + ' got beat, newest first (ties go to ' + esc(_andrew_first()) + '). Smoked = took at least twice as long; '
+        'Obliterated = three times. <a href="/player?name=' + esc(quote(player)) + '">Full player history</a></p>'
+        '<div class="pcards">' + cards + '</div>' + table))
 
 
 ANDREWLASTBEATME_CSS = """<style>
 .phist td.num{font-weight:bold;color:#4ecca3;white-space:nowrap}
-.phist .of{font-weight:normal;color:#888;font-size:.8em}
+.phist .of,.pv .of{font-weight:normal;color:#888;font-size:.6em}
 .phist .who a{color:#eee;text-decoration:none;font-weight:bold}
 .phist .who a:hover{color:#4ecca3}
 .phist .ago{color:#888;font-size:.8em}
-.phist .score{color:#888;font-size:.8em;margin-top:2px}
+.score{color:#888;font-size:.8em;margin-top:2px}
 .phist .never{color:#e94560;font-style:italic}
 .phist .dim{color:#666}
+.phist td.num.hot,.pv.hot{color:#ff9a56}
+.phist tr.go{cursor:pointer}
+.phist td.win{font-weight:bold;white-space:nowrap}
+.smoke-tag{color:#fff;padding:2px 8px;border-radius:6px;font-size:.7em;font-weight:bold;text-transform:uppercase;letter-spacing:.5px}
+.smoke-tag.smoked{background:#ff9a56}
+.smoke-tag.obliterated{background:#e94560}
+.smoke-tag.sweep{background:#9966ff}
+.phist tr.smoked-row{background:rgba(255,154,86,.08)}
+.phist tr.smoked-row td{border-bottom:none}
+.phist tr.roast-row{background:rgba(255,154,86,.08)}
+.phist tr.roast-row td{color:#ffcfa8;font-style:italic;padding-top:0}
+.hint{text-align:center;color:#666;font-size:.8em;margin:-28px 0 30px}
+.subtitle a{color:#36a2eb}
 h1{background:linear-gradient(90deg,#e94560,#ff9a56);-webkit-background-clip:text;background-clip:text}
-@media(max-width:768px){.phist th,.phist td{padding:8px 6px}}
+.tbl-wrap{overflow-x:auto;margin-bottom:40px;border-radius:15px}
+.tbl-wrap table.phist{margin-bottom:0}
+@media(max-width:768px){.phist th,.phist td{padding:8px 6px}h1{font-size:1.7em}
+.phist th{font-size:.7em;letter-spacing:.5px}.phist td.win{white-space:normal}
+.smoke-tag{display:inline-block;margin-top:3px}.hint{margin-top:-28px}}
 </style>"""
 
 
 for _path in dict.fromkeys([ZS_ANDREWLASTBEATME_PATH, "/AndrewLastBeatMe"]
                            if ZS_ANDREWLASTBEATME_PATH == "/andrewlastbeatme" else [ZS_ANDREWLASTBEATME_PATH]):
     app.add_api_route(_path, andrew_last_beat_me_page, methods=["GET"],
+                      response_class=HTMLResponse, include_in_schema=False)
+    app.add_api_route(_path + "/vs", andrew_vs_page, methods=["GET"],
                       response_class=HTMLResponse, include_in_schema=False)
