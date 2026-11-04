@@ -347,7 +347,10 @@ def adjust(player: str, add_zip: int = 0, add_patch: int = 0, add_days: int = 0,
 # "hold scores back until the next day" behavior).
 # =========================================================================== #
 
-ZS_TIMEZONE = os.environ.get("ZS_TIMEZONE", "America/Chicago")
+# The Zip & Patches day ends at midnight Pacific, when the daily puzzles reset, so a
+# score posted at 11pm Pacific counts for the puzzle it was played on. The side
+# games keep their own day boundary on ZS_TIMEZONE (Central); this one is separate.
+ZS_TIMEZONE = os.environ.get("ZS_SCORE_TIMEZONE", "America/Los_Angeles")
 ZS_BUFFER_DB = os.environ.get("ZS_BUFFER_DB", "/home/zipscores_buffer.db")
 ZS_COLLECTOR_TOKEN = os.environ.get("ZS_COLLECTOR_TOKEN", "")
 ZS_RETENTION_DAYS = int(os.environ.get("ZS_RETENTION_DAYS", "30"))
@@ -959,6 +962,36 @@ async def collect(request: Request):
 @app.post("/finalize")
 def finalize(date: str = None):
     return zs_finalize(target_date=date)
+
+
+@app.on_event("startup")
+def _zs_redate_pending():
+    """Re-stamp buffered messages for days not yet scored with the current day cutoff.
+
+    local_date is computed when a message arrives, so changing ZS_SCORE_TIMEZONE
+    would otherwise leave already-buffered messages on the old boundary. Scored days
+    are left alone: re-dating them could not change history anyway."""
+    tz = _zs_tz()
+    history = load_json(HISTORY_FILE)
+    moved = 0
+    with _zs_db_lock:
+        rows = _zs_conn.execute("SELECT id, created_utc, local_date FROM buffer").fetchall()
+        for msg_id, created_utc, local_date in rows:
+            if local_date in history:
+                continue
+            try:
+                created_dt = datetime.fromisoformat(str(created_utc).replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            new_date = created_dt.astimezone(tz).strftime("%Y-%m-%d")
+            if new_date != local_date:
+                _zs_conn.execute("UPDATE buffer SET local_date = ? WHERE id = ?",
+                                 (new_date, msg_id))
+                moved += 1
+        _zs_conn.commit()
+    if moved:
+        print(f"[zipscores] Re-dated {moved} buffered message(s) to {ZS_TIMEZONE} days.")
+    return moved
 
 
 @app.on_event("startup")

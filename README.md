@@ -33,7 +33,8 @@ were reachable only by typing the URL, since nothing on the site linked to them.
 Accepts a Teams "Get messages in a chat" page. It is liberal in what it accepts —
 a bare JSON list, `{"value": [...]}`, or `{"body": {"value": [...]}}`. For each
 message it reads `id`, `createdDateTime`, `from.user.displayName`, `body.content`,
-and `messageType`, computes the local date in `ZS_TIMEZONE`, and upserts
+and `messageType`, computes the local date in `ZS_SCORE_TIMEZONE` (midnight Pacific
+by default, when the daily puzzles reset), and upserts
 (deduping on the Teams `id`).
 
 * Returns `{ "received": N, "new": M }`.
@@ -43,7 +44,7 @@ and `messageType`, computes the local date in `ZS_TIMEZONE`, and upserts
 ### `POST /finalize?date=YYYY-MM-DD`
 
 Scores the buffered messages for a given local date (defaults to **yesterday** in
-`ZS_TIMEZONE`) and feeds them through the existing `process()` leaderboard logic.
+`ZS_SCORE_TIMEZONE`) and feeds them through the existing `process()` leaderboard logic.
 This is the manual / backfill / test hook.
 
 * Returns `{ "date": ..., "count": ..., "result": ... }`.
@@ -734,7 +735,8 @@ git reports nothing to commit.
 
 | Variable              | Default                      | Purpose                                            |
 | --------------------- | ---------------------------- | -------------------------------------------------- |
-| `ZS_TIMEZONE`         | `America/Chicago`            | Local TZ for "yesterday" and the daily scheduler   |
+| `ZS_SCORE_TIMEZONE`   | `America/Los_Angeles`        | Zip & Patches day cutoff (midnight Pacific): "yesterday", the daily finalizer, accommodation and backfill dates |
+| `ZS_TIMEZONE`         | `America/Chicago`            | Day boundary for the side games only               |
 | `ZS_BUFFER_DB`        | `/home/zipscores_buffer.db`  | SQLite buffer path (under `./data:/home`, persists) |
 | `ZS_COLLECTOR_TOKEN`  | `` (empty)                   | If set, `/collect` requires `X-Token` to match     |
 | `ZS_RETENTION_DAYS`   | `30`                         | Prune buffered messages and decided proof images older than this |
