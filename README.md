@@ -54,6 +54,15 @@ A line is kept only if its cleaned body looks score-ish (contains `//` **or**
 starts with a digit). Messages whose `messageType` is set and not `"message"`
 (e.g. `systemEventMessage`) are ignored.
 
+`parse_score()` then reads the first `zip//patches` pair in seconds. Each game must
+be at least 1 second; there is no floor on the combined time, because a legit
+2-second Zip plus a quick Patches is real and a rejected score is scored as a
+missed day (worst + 1). A bare number with no `//` counts as Zip only with Patches
+0, so that shape still needs at least 9, which keeps chat replies like "2" from
+counting. Quoted text from a Teams reply is ignored, and HTML line breaks
+become spaces so two lines never fuse into one number. `python
+tools/check_parse_score.py` covers these cases.
+
 ## Accommodation requests (PTO without leaving Teams installed)
 
 Anyone heading out shouldn't have to keep Teams on their phone just to dodge the

@@ -97,41 +97,53 @@ def save_json(path, data):
         json.dump(data, f, indent=2)
 
 def clean(text):
-    text = re.sub(r'<.*?>', '', text)
-    text = text.replace('&nbsp;', ' ').replace('&amp;', '&')
+    # A Teams reply carries the message it answers inside a <blockquote>. Left in,
+    # its "11//13" comes first and the replier is scored with someone else's time.
+    text = re.sub(r'<blockquote\b.*?</blockquote>', ' ', text, flags=re.I | re.S)
+    # Tags become a space, not nothing: "<p>12//30</p><p>5s better</p>" must not
+    # fuse into "12//305s better" and score a 305 on Patches.
+    text = re.sub(r'<.*?>', ' ', text)
+    text = html.unescape(text)
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
+
+
+# --- Protections: Anti-Cheating Limits ---
+# Each game needs at least 1 second; a 0 is not a real time. There used to be a
+# 9-second floor on Zip + Patches combined, but a legit 2-second Zip plus a quick
+# Patches lands under it, and a rejected score is scored as a missed day.
+MIN_GAME_SECONDS = 1
+# A bare number with no "//" scores Zip only and gives Patches 0, so stray chat
+# replies like "2" or "5" must not count. That shape keeps the old 9 floor.
+MIN_BARE_SCORE = 9
+MAX_SCORE = 1000000
 
 
 def parse_score(msg):
     msg = clean(msg)
     if not re.search(r'\d', msg):
         return None
-        
-    # --- Protections: Anti-Cheating Limits ---
-    MIN_TOTAL_SCORE = 9
-    MAX_SCORE = 1000000
 
     m = re.search(r'(\d+)\s*//\s*(\d+)', msg)
     if m:
         try:
             z, p = int(m.group(1)), int(m.group(2))
-            if (z + p) < MIN_TOTAL_SCORE or z > MAX_SCORE or p > MAX_SCORE:
+            if min(z, p) < MIN_GAME_SECONDS or max(z, p) > MAX_SCORE:
                 return None
             return z, p
         except ValueError:
             return None
-            
+
     m = re.match(r'^(\d+)$', msg)
     if m:
         try:
             z = int(m.group(1))
-            if z < MIN_TOTAL_SCORE or z > MAX_SCORE:
+            if z < MIN_BARE_SCORE or z > MAX_SCORE:
                 return None
             return z, 0
         except ValueError:
             return None
-            
+
     return None
 
 
