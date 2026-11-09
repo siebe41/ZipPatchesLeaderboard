@@ -33,7 +33,8 @@ were reachable only by typing the URL, since nothing on the site linked to them.
 Accepts a Teams "Get messages in a chat" page. It is liberal in what it accepts —
 a bare JSON list, `{"value": [...]}`, or `{"body": {"value": [...]}}`. For each
 message it reads `id`, `createdDateTime`, `from.user.displayName`, `body.content`,
-and `messageType`, computes the local date in `ZS_TIMEZONE`, and upserts
+and `messageType`, computes the local date in `ZS_SCORE_TIMEZONE` (midnight Pacific
+by default, when the daily puzzles reset), and upserts
 (deduping on the Teams `id`).
 
 * Returns `{ "received": N, "new": M }`.
@@ -43,7 +44,7 @@ and `messageType`, computes the local date in `ZS_TIMEZONE`, and upserts
 ### `POST /finalize?date=YYYY-MM-DD`
 
 Scores the buffered messages for a given local date (defaults to **yesterday** in
-`ZS_TIMEZONE`) and feeds them through the existing `process()` leaderboard logic.
+`ZS_SCORE_TIMEZONE`) and feeds them through the existing `process()` leaderboard logic.
 This is the manual / backfill / test hook.
 
 * Returns `{ "date": ..., "count": ..., "result": ... }`.
@@ -53,6 +54,15 @@ This is the manual / backfill / test hook.
 A line is kept only if its cleaned body looks score-ish (contains `//` **or**
 starts with a digit). Messages whose `messageType` is set and not `"message"`
 (e.g. `systemEventMessage`) are ignored.
+
+`parse_score()` then reads the first `zip//patches` pair in seconds. Each game must
+be at least 1 second; there is no floor on the combined time, because a legit
+2-second Zip plus a quick Patches is real and a rejected score is scored as a
+missed day (worst + 1). A bare number with no `//` counts as Zip only with Patches
+0, so that shape still needs at least 9, which keeps chat replies like "2" from
+counting. Quoted text from a Teams reply is ignored, and HTML line breaks
+become spaces so two lines never fuse into one number. `python
+tools/check_parse_score.py` covers these cases.
 
 ## Accommodation requests (PTO without leaving Teams installed)
 
@@ -725,7 +735,8 @@ git reports nothing to commit.
 
 | Variable              | Default                      | Purpose                                            |
 | --------------------- | ---------------------------- | -------------------------------------------------- |
-| `ZS_TIMEZONE`         | `America/Chicago`            | Local TZ for "yesterday" and the daily scheduler   |
+| `ZS_SCORE_TIMEZONE`   | `America/Los_Angeles`        | Zip & Patches day cutoff (midnight Pacific): "yesterday", the daily finalizer, accommodation and backfill dates |
+| `ZS_TIMEZONE`         | `America/Chicago`            | Day boundary for the side games only               |
 | `ZS_BUFFER_DB`        | `/home/zipscores_buffer.db`  | SQLite buffer path (under `./data:/home`, persists) |
 | `ZS_COLLECTOR_TOKEN`  | `` (empty)                   | If set, `/collect` requires `X-Token` to match     |
 | `ZS_RETENTION_DAYS`   | `30`                         | Prune buffered messages and decided proof images older than this |
